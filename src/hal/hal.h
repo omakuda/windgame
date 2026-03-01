@@ -138,6 +138,7 @@ void hal_tilemap_draw(void);
 /* Read a single tile from the current tilemap at tile coordinates.
    Returns the tile index, or 0 if out of bounds. */
 uint8_t hal_tilemap_get(uint16_t tile_x, uint16_t tile_y);
+void    hal_tilemap_put(uint16_t tile_x, uint16_t tile_y, uint8_t tile_idx);
 
 /*==========================================================================
  * SPRITES

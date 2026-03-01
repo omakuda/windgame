@@ -75,7 +75,8 @@ static uint8_t s_sprite_patterns[256][SPRITE_W * SPRITE_H];
 
 /* Tilemap */
 static uint8_t s_tile_patterns[256][TILE_SIZE * TILE_SIZE];
-static const uint8_t *s_tilemap_data;
+static uint8_t s_tilemap_buf[128 * 64]; /* mutable copy for hal_tilemap_put */
+static uint8_t *s_tilemap_data;
 static uint16_t s_tilemap_w;
 static uint16_t s_tilemap_h;
 static int16_t  s_scroll_x;
@@ -835,7 +836,10 @@ void hal_tiles_load(const uint8_t *data, uint8_t first, uint8_t count) {
 }
 
 void hal_tilemap_set(const uint8_t *data, uint16_t map_w, uint16_t map_h) {
-    s_tilemap_data = data;
+    size_t sz = (size_t)map_w * map_h;
+    if (sz > sizeof(s_tilemap_buf)) sz = sizeof(s_tilemap_buf);
+    memcpy(s_tilemap_buf, data, sz);
+    s_tilemap_data = s_tilemap_buf;
     s_tilemap_w = map_w;
     s_tilemap_h = map_h;
     s_scroll_x = 0;
@@ -902,6 +906,12 @@ uint8_t hal_tilemap_get(uint16_t tile_x, uint16_t tile_y) {
     if (s_tilemap_data == NULL) return 0;
     if (tile_x >= s_tilemap_w || tile_y >= s_tilemap_h) return 0;
     return s_tilemap_data[tile_y * s_tilemap_w + tile_x];
+}
+
+void hal_tilemap_put(uint16_t tile_x, uint16_t tile_y, uint8_t tile_idx) {
+    if (s_tilemap_data == NULL) return;
+    if (tile_x >= s_tilemap_w || tile_y >= s_tilemap_h) return;
+    s_tilemap_data[tile_y * s_tilemap_w + tile_x] = tile_idx;
 }
 
 /*--------------------------------------------------------------------------

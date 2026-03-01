@@ -626,8 +626,17 @@ static void dungeon_init_random(void){
     load_entry_room();
 }
 
+/* Forward declarations for equipment system (defined below render) */
+static void arrows_clear(void);
+static void arrows_update(void);
+static void placed_ladder_clear(void);
+static void use_equip(uint8_t slot, uint16_t pressed);
+static void inventory_init(void);
+static void bag_input(uint16_t pressed);
+
 static void action_init(void){
     hal_sprite_hide_all();s_action_npc_count=0;
+    arrows_clear();placed_ladder_clear();
     if(s_map_event_type==MAP_EVENT_DUNGEON_FIXED){dungeon_init_fixed();}
     else if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM){dungeon_init_random();}
     else{
@@ -766,21 +775,282 @@ av:
     if(s_camera_x>(int16_t)(s_act_map_w*TILE_SIZE)-SCREEN_W)s_camera_x=(int16_t)(s_act_map_w*TILE_SIZE)-SCREEN_W;
     hal_tilemap_scroll(s_camera_x,0);
 
-    if(pressed&INPUT_BTN3){}if(pressed&INPUT_BTN4){}if(pressed&INPUT_BTN5){}if(pressed&INPUT_BTN6){}
+    /* Equipment use (BTN4/5/6) */
+    {uint8_t sl; for(sl=0;sl<EQUIP_SLOTS;sl++) use_equip(sl,pressed);}
+
+    /* Update projectiles */
+    arrows_update();
     /* No menu exit from action scenes */
 }
 
 /*==========================================================================
- * BAG / PAUSE
+ * EQUIPMENT / INVENTORY SYSTEM
  *==========================================================================*/
 
-static void bag_draw(void){
-    hal_draw_rect(32,24,192,144,0x00);hal_draw_rect(34,26,188,140,0x02);
-    hal_draw_text(80,32,"== BAG ==",0xFF);
-    hal_draw_text(44,52,"1. (empty)",0xFF);hal_draw_text(44,64,"2. (empty)",0xFF);
-    hal_draw_text(44,76,"3. (empty)",0xFF);hal_draw_text(44,88,"4. (empty)",0xFF);
-    hal_draw_text(44,108,"Press B to close",0xFF);
+typedef enum {
+    ITEM_NONE=0,
+    ITEM_BOW,       /* fires arrow in facing direction from upper body */
+    ITEM_LADDER,    /* places/retracts a climbable ladder in front */
+    ITEM_COUNT
+} item_id_t;
+
+static const char *item_name(item_id_t id){
+    switch(id){case ITEM_BOW:return"Bow";case ITEM_LADDER:return"Ladder";default:return"---";}
 }
+
+/* Inventory: bag slots + 3 equip slots (mapped to BTN4/5/6) */
+#define BAG_SLOTS     8
+#define EQUIP_SLOTS   3
+static item_id_t s_bag[BAG_SLOTS];
+static item_id_t s_equip[EQUIP_SLOTS]; /* equip[0]=BTN4, equip[1]=BTN5, equip[2]=BTN6 */
+
+static void inventory_init(void){
+    uint8_t i;
+    for(i=0;i<BAG_SLOTS;i++) s_bag[i]=ITEM_NONE;
+    for(i=0;i<EQUIP_SLOTS;i++) s_equip[i]=ITEM_NONE;
+    /* Starter items */
+    s_bag[0]=ITEM_BOW;
+    s_bag[1]=ITEM_LADDER;
+    s_equip[0]=ITEM_BOW;    /* BTN4 = bow */
+    s_equip[1]=ITEM_LADDER; /* BTN5 = ladder */
+}
+
+/*==========================================================================
+ * ARROW PROJECTILE
+ *==========================================================================*/
+
+#define MAX_ARROWS     4
+#define ARROW_SPEED    4
+#define ARROW_LIFETIME 60   /* frames before despawn */
+#define ARROW_SPAWN_Y_OFFSET 20  /* px up from player origin */
+
+typedef struct {
+    int16_t x, y, vel_x;
+    uint8_t active, timer;
+} arrow_t;
+static arrow_t s_arrows[MAX_ARROWS];
+
+static void arrows_clear(void){
+    uint8_t i; for(i=0;i<MAX_ARROWS;i++) s_arrows[i].active=0;
+}
+static void arrow_fire(void){
+    uint8_t i;
+    for(i=0;i<MAX_ARROWS;i++){
+        if(!s_arrows[i].active){
+            s_arrows[i].active=1;
+            s_arrows[i].timer=ARROW_LIFETIME;
+            s_arrows[i].x=s_player.x+(s_player.dir?-4:SPRITE_W);
+            s_arrows[i].y=s_player.y+ARROW_SPAWN_Y_OFFSET;
+            s_arrows[i].vel_x=s_player.dir?-ARROW_SPEED:ARROW_SPEED;
+            break;
+        }
+    }
+}
+static void arrows_update(void){
+    uint8_t i;
+    for(i=0;i<MAX_ARROWS;i++){
+        if(!s_arrows[i].active) continue;
+        s_arrows[i].x+=s_arrows[i].vel_x;
+        s_arrows[i].timer--;
+        /* Despawn on timeout or solid tile hit */
+        if(s_arrows[i].timer==0){s_arrows[i].active=0;continue;}
+        {int16_t ax=s_arrows[i].x+4, ay=s_arrows[i].y+4;
+         uint16_t tx=(uint16_t)(ax/TILE_SIZE), ty=(uint16_t)(ay/TILE_SIZE);
+         if(tx<s_act_map_w&&ty<s_act_map_h){
+             if(tile_flags(hal_tilemap_get(tx,ty))&TILE_SOLID){s_arrows[i].active=0;}}
+         else s_arrows[i].active=0;}
+    }
+}
+static void arrows_draw(int16_t cam_x){
+    uint8_t i;
+    for(i=0;i<MAX_ARROWS;i++){
+        if(!s_arrows[i].active) continue;
+        /* Draw arrow as small horizontal bar */
+        {int16_t sx=s_arrows[i].x-cam_x, sy=s_arrows[i].y;
+         if(sx>=-8&&sx<SCREEN_W+8)
+            hal_draw_rect(sx,sy,8,2,0xFC); /* yellow */}
+    }
+}
+
+/*==========================================================================
+ * PLACEABLE LADDER
+ *==========================================================================*/
+
+#define PLACED_LADDER_MAX_H  6  /* max tiles high */
+
+typedef struct {
+    uint8_t active;
+    uint16_t tx, ty_top;  /* tile x, topmost tile y */
+    uint8_t height;       /* tiles tall */
+} placed_ladder_t;
+static placed_ladder_t s_placed_ladder;
+
+static void placed_ladder_clear(void){s_placed_ladder.active=0;}
+
+/* Write ladder tiles (5) into the tilemap at the placed position */
+static void placed_ladder_apply(void){
+    uint8_t i;
+    if(!s_placed_ladder.active) return;
+    for(i=0;i<s_placed_ladder.height;i++){
+        uint16_t ty=s_placed_ladder.ty_top+i;
+        if(ty<s_act_map_h)
+            hal_tilemap_put(s_placed_ladder.tx,ty,5);
+    }
+}
+
+/* Erase ladder tiles back to empty (0) */
+static void placed_ladder_remove(void){
+    uint8_t i;
+    if(!s_placed_ladder.active) return;
+    for(i=0;i<s_placed_ladder.height;i++){
+        uint16_t ty=s_placed_ladder.ty_top+i;
+        if(ty<s_act_map_h)
+            hal_tilemap_put(s_placed_ladder.tx,ty,0);
+    }
+    s_placed_ladder.active=0;
+}
+
+/* Place a ladder in front of the player. Extends upward from the floor
+ * tile in front of the player, up to PLACED_LADDER_MAX_H tiles. */
+static void placed_ladder_place(void){
+    int16_t px_centre=s_player.x+SPRITE_W/2;
+    int16_t front_x=s_player.dir?(px_centre-TILE_SIZE):(px_centre+TILE_SIZE);
+    uint16_t tx=(uint16_t)(front_x/TILE_SIZE);
+    uint16_t player_foot_ty=(uint16_t)((s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H)/TILE_SIZE);
+    uint16_t base_ty, top_ty;
+    uint8_t h;
+
+    if(tx>=s_act_map_w) return;
+
+    /* Find the ground: scan down from player foot level */
+    base_ty=player_foot_ty;
+    while(base_ty<s_act_map_h && !(tile_flags(hal_tilemap_get(tx,base_ty))&TILE_SOLID))
+        base_ty++;
+    if(base_ty==0||base_ty>=s_act_map_h) return;
+
+    /* Extend upward from the tile above the floor */
+    h=0; top_ty=base_ty;
+    while(h<PLACED_LADDER_MAX_H && top_ty>0){
+        top_ty--;
+        if(tile_flags(hal_tilemap_get(tx,top_ty))&TILE_SOLID) {top_ty++;break;}
+        h++;
+    }
+    if(h==0) return;
+
+    s_placed_ladder.active=1;
+    s_placed_ladder.tx=tx;
+    s_placed_ladder.ty_top=top_ty;
+    s_placed_ladder.height=h;
+    placed_ladder_apply();
+}
+
+/* Check if player is adjacent to the placed ladder (not on it) */
+static uint8_t player_next_to_placed_ladder(void){
+    uint16_t ptx;
+    if(!s_placed_ladder.active) return 0;
+    ptx=(uint16_t)((s_player.x+SPRITE_W/2)/TILE_SIZE);
+    /* Adjacent = one tile away horizontally */
+    if(ptx==s_placed_ladder.tx+1||ptx+1==s_placed_ladder.tx) return 1;
+    return 0;
+}
+
+static uint8_t player_on_placed_ladder(void){
+    uint16_t ptx;
+    if(!s_placed_ladder.active) return 0;
+    ptx=(uint16_t)((s_player.x+SPRITE_W/2)/TILE_SIZE);
+    return (ptx==s_placed_ladder.tx)?1:0;
+}
+
+/*==========================================================================
+ * EQUIPMENT USE (called from action_update)
+ *==========================================================================*/
+
+static void use_equip(uint8_t slot, uint16_t pressed){
+    uint16_t btn;
+    item_id_t item;
+    switch(slot){
+        case 0: btn=INPUT_BTN4; break;
+        case 1: btn=INPUT_BTN5; break;
+        case 2: btn=INPUT_BTN6; break;
+        default: return;
+    }
+    if(!(pressed&btn)) return;
+    item=s_equip[slot];
+    switch(item){
+        case ITEM_BOW: arrow_fire(); break;
+        case ITEM_LADDER:
+            if(s_placed_ladder.active){
+                /* Retract if adjacent but not standing on it */
+                if(player_next_to_placed_ladder()&&!s_player.on_ladder)
+                    placed_ladder_remove();
+            } else {
+                placed_ladder_place();
+            }
+            break;
+        default: break;
+    }
+}
+
+/*==========================================================================
+ * BAG / PAUSE / EQUIP HUD
+ *==========================================================================*/
+
+static uint8_t s_bag_cursor; /* which bag slot is highlighted */
+
+static void bag_draw(void){
+    uint8_t i;
+    hal_draw_rect(20,16,216,160,0x00);hal_draw_rect(22,18,212,156,0x02);
+    hal_draw_text(72,22,"== BAG ==",0xFF);
+
+    /* Bag inventory slots */
+    for(i=0;i<BAG_SLOTS;i++){
+        int16_t yy=38+(int16_t)i*12;
+        uint8_t col=(i==s_bag_cursor)?0xFC:0xFF; /* yellow highlight */
+        hal_draw_number(30,yy,(int32_t)(i+1),col);
+        hal_draw_text(38,yy,".",col);
+        hal_draw_text(46,yy,item_name(s_bag[i]),col);
+    }
+
+    /* Equip slots on the right side */
+    hal_draw_text(140,38,"EQUIP:",0xFF);
+    for(i=0;i<EQUIP_SLOTS;i++){
+        int16_t yy=50+(int16_t)i*12;
+        hal_draw_text(140,yy,i==0?"B4:":i==1?"B5:":"B6:",0xAD);
+        hal_draw_text(164,yy,item_name(s_equip[i]),0xFF);
+    }
+
+    hal_draw_text(30,146,"Up/Dn=Select 4/5/6=Assign B=Close",0xFF);
+}
+
+/* Process bag input: navigate cursor, assign items to equip slots */
+static void bag_input(uint16_t pressed){
+    if(pressed&INPUT_UP){if(s_bag_cursor>0)s_bag_cursor--;}
+    if(pressed&INPUT_DOWN){if(s_bag_cursor<BAG_SLOTS-1)s_bag_cursor++;}
+    /* BTN4/5/6 assign currently selected bag item to that equip slot */
+    if(pressed&INPUT_BTN4){s_equip[0]=s_bag[s_bag_cursor];}
+    if(pressed&INPUT_BTN5){s_equip[1]=s_bag[s_bag_cursor];}
+    if(pressed&INPUT_BTN6){s_equip[2]=s_bag[s_bag_cursor];}
+    /* BTN3 clears the selected bag slot */
+    if(pressed&INPUT_BTN3){s_bag[s_bag_cursor]=ITEM_NONE;}
+}
+
+/* Equip HUD: 3 small boxes at top-right showing equipped items */
+static void equip_hud_draw(void){
+    uint8_t i;
+    for(i=0;i<EQUIP_SLOTS;i++){
+        int16_t bx=SCREEN_W-78+(int16_t)i*26;
+        int16_t by=2;
+        /* Box background */
+        hal_draw_rect(bx,by,24,12,0x01);
+        /* Button label */
+        hal_draw_text(bx+1,by+2,i==0?"4":i==1?"5":"6",0xAD);
+        /* Item name (abbreviated to 3 chars) */
+        {const char *n=item_name(s_equip[i]);
+         char abbr[4]={n[0],n[1]&&n[0]!='-'?n[1]:' ',n[2]&&n[1]&&n[0]!='-'?n[2]:' ',0};
+         hal_draw_text(bx+9,by+2,abbr,0xFF);}
+    }
+}
+
 static void menu_draw(void){
     hal_draw_rect(64,60,128,72,0x00);hal_draw_rect(66,62,124,68,0x01);
     hal_draw_text(88,70,"PAUSED",0xFF);hal_draw_text(72,90,"Enter=Resume",0xFF);
@@ -836,7 +1106,9 @@ static void render(void){
             hal_draw_text(92,2,"/",0xFF);hal_draw_number(100,2,(int32_t)s_dungeon.num_rooms,0xFF);}break;
         default:hal_draw_text(2,2,"ACTION",0xFF);break;}
         hal_draw_text(2,12,"HP:",0xFF);hal_draw_number(28,12,(int32_t)s_player.hp,0xFF);
-        if(s_player.attacking>0)hal_draw_text(SCREEN_W-64,2,"ATK!",0xFF);
+        if(s_player.attacking>0)hal_draw_text(SCREEN_W-90,14,"ATK!",0xFF);
+        arrows_draw(s_camera_x);
+        equip_hud_draw();
     }
     if(s_friendly_dialog)friendly_dialog_draw();
     if(s_bag_open)bag_draw();
@@ -858,13 +1130,16 @@ int main(void){
     s_ow_player_x=2*TILE_SIZE;s_ow_player_y=2*TILE_SIZE;
     s_player.hp=PLAYER_START_HP;s_action_npc_count=0;
     s_dungeon.num_rooms=0;s_dungeon.current_idx=0;s_dungeon.in_entry=0;
+    s_bag_cursor=0;
+    inventory_init();
     overworld_init();last_scene=s_scene;
 
     for(;;){
         hal_frame_begin();input=hal_input_poll();pressed=hal_input_pressed();
-        if((pressed&INPUT_BAG)&&!s_friendly_dialog)s_bag_open=!s_bag_open;
+        if((pressed&INPUT_BAG)&&!s_friendly_dialog){s_bag_open=!s_bag_open;if(s_bag_open)s_bag_cursor=0;}
         if((pressed&INPUT_MENU)&&!s_bag_open&&!s_friendly_dialog)s_paused=!s_paused;
-        if(!s_paused&&!s_bag_open){switch(s_scene){case SCENE_OVERWORLD:overworld_update(input,pressed);break;case SCENE_ACTION:action_update(input,pressed);break;}}
+        if(s_bag_open){bag_input(pressed);}
+        else if(!s_paused){switch(s_scene){case SCENE_OVERWORLD:overworld_update(input,pressed);break;case SCENE_ACTION:action_update(input,pressed);break;}}
         if(s_scene!=last_scene){s_paused=0;s_bag_open=0;if(s_scene==SCENE_ACTION)action_init();else overworld_init();last_scene=s_scene;}
         hal_music_update();render();hal_frame_end();rng_next();}
 #ifdef _MSC_VER
