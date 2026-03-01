@@ -352,14 +352,26 @@ static const uint8_t dungeon_entry_room[ENTRY_H * ENTRY_W] = {
  * PLAYER STATE
  *==========================================================================*/
 
+/*==========================================================================
+ * PLAYER HITBOX
+ *
+ * Action scenes: 16x32 sprite (two 16x16 slots stacked).
+ * Hitbox is inset from the sprite edges.
+ * Overworld: uses OW_PLAYER_SIZE/OFFSET (8x8 centred in 16x16).
+ *==========================================================================*/
+
 #define PLAYER_HB_X_OFFSET  3
 #define PLAYER_HB_Y_OFFSET  2
 #define PLAYER_HB_W         10
-#define PLAYER_HB_H         14
+#define PLAYER_HB_H         28   /* tall hitbox for 16x32 sprite */
+#define PLAYER_SPRITE_H     32   /* total sprite height in action scenes */
+#define PATTERN_ACT_TOP      2   /* sprite pattern: action player top half  */
+#define PATTERN_ACT_BOT      3   /* sprite pattern: action player bottom    */
 
 typedef struct {
     int16_t x, y, vel_x, vel_y;
     int16_t vel_fx;  /* horizontal velocity in 8.8 fixed-point (action scenes) */
+    int16_t vel_fy;  /* vertical velocity in 8.8 fixed-point (action scenes)   */
     uint8_t dir, on_ground, on_ladder, attacking, frame;
     int16_t hp;
     uint8_t invuln;
@@ -393,7 +405,7 @@ static uint8_t s_paused, s_bag_open, s_friendly_dialog;
 static int16_t s_camera_x, s_ow_cam_x, s_ow_cam_y;
 static uint16_t s_act_map_w, s_act_map_h;
 
-#define ACTION_NPC_SPRITE_BASE 2
+#define ACTION_NPC_SPRITE_BASE 2  /* slots 0,1 = action player (top,bottom) */
 #define ACTION_NPC_MAX 8
 static uint8_t s_action_npc_count;
 
@@ -406,14 +418,30 @@ typedef struct {
 } dungeon_state_t;
 static dungeon_state_t s_dungeon;
 
-#define GRAVITY 1
-#define JUMP_FORCE (-7)
 #define MOVE_SPEED 2
-#define MAX_FALL_SPEED 6
 #define CLIMB_SPEED 2
 #define ATTACK_DURATION 12
 #define INVULN_TIME 30
 #define PLAYER_START_HP 10
+
+/*----------------------------------------------------------------------
+ * Vertical physics (fixed-point 8.8)
+ *
+ * Jump clears just over 2 tiles (34px). Near the apex where
+ * |vel_fy| < FY_APEX_ZONE, gravity drops to FY_GRAV_APEX for
+ * hangtime — the jump starts and ends slower, spending more
+ * frames at the peak.
+ *
+ * Trajectory (approx):  launch -3.5 px/f → normal gravity 12 frames
+ *                        → apex zone ~8 frames at half gravity
+ *                        → fall accelerates back to normal
+ *----------------------------------------------------------------------*/
+#define FY_GRAV        48     /* normal gravity: 0.1875 px/frame²       */
+#define FY_GRAV_APEX   20     /* apex gravity:   0.078  px/frame²       */
+#define FY_APEX_ZONE   192    /* |vel_fy| threshold for hangtime (~0.75 px/f) */
+#define FY_JUMP       (-900)  /* jump impulse: -3.52 px/frame           */
+#define FY_MAX_FALL    1536   /* terminal velocity: 6 px/frame          */
+#define FY_CLIMB       512    /* ladder speed: 2 px/frame               */
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
  * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
@@ -480,9 +508,10 @@ static const char *safe_zone_name(safe_zone_type_t st) {
 static uint8_t s_ow_frame_toggle;  /* alternates 0/1 each frame for 75% speed */
 
 static void overworld_init(void) {
+    hal_sprite_hide_all();
     hal_tilemap_set(overworld_map, OW_MAP_W, OW_MAP_H);
     s_player.x=s_ow_player_x; s_player.y=s_ow_player_y;
-    s_player.vel_x=0; s_player.vel_y=0; s_player.vel_fx=0; s_player.dir=0;
+    s_player.vel_x=0; s_player.vel_y=0; s_player.vel_fx=0; s_player.vel_fy=0; s_player.dir=0;
     s_player.on_ground=0; s_player.attacking=0; s_player.frame=0;
     s_friendly_dialog=0;s_ow_frame_toggle=0;
     events_init(overworld_map,OW_MAP_W,OW_MAP_H,OW_PATH_TILE,&SPAWN_TABLE_DEFAULT);
@@ -563,7 +592,7 @@ static void load_dungeon_room(uint8_t pool_idx,uint8_t from_fwd){
     s_act_map_w=room->w;s_act_map_h=room->h;
     if(from_fwd){s_player.x=room->entry_back_x;s_player.y=room->entry_back_y;}
     else{s_player.x=room->entry_fwd_x;s_player.y=room->entry_fwd_y;}
-    s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;
+    s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;
     s_camera_x=0;s_dungeon.in_entry=0;
 }
 
@@ -573,7 +602,7 @@ static void load_entry_room(void){
     s_act_map_w=ENTRY_W;s_act_map_h=ENTRY_H;
     /* Spawn near centre on the floor, above the pit */
     s_player.x=6*TILE_SIZE;s_player.y=7*TILE_SIZE;
-    s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;
+    s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;
     s_camera_x=0;s_dungeon.in_entry=1;
 }
 
@@ -616,8 +645,8 @@ static void action_init(void){
         case ACTION_REASON_COMBAT:default:hal_tilemap_set(field_map_combat,FIELD_COMBAT_W,FIELD_COMBAT_H);s_act_map_w=FIELD_COMBAT_W;s_act_map_h=FIELD_COMBAT_H;break;}
         /* Field spawn: near but not at extreme left, on the ground */
         s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-3)*TILE_SIZE);
-        s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;}
-    s_player.dir=0;s_player.frame=0;s_player.invuln=0;s_player.vel_fx=0;s_camera_x=0;
+        s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;}
+    s_player.dir=0;s_player.frame=0;s_player.invuln=0;s_player.vel_fx=0;s_player.vel_fy=0;s_camera_x=0;
 }
 
 static void dungeon_handle_transition(int16_t pcx){
@@ -663,11 +692,20 @@ static void action_update(uint16_t input,uint16_t pressed){
     hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
     s_player.on_ladder=box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_LADDER);
 
-    if(s_player.on_ladder){s_player.vel_y=0;
-        if(input&INPUT_UP)s_player.vel_y=-CLIMB_SPEED;if(input&INPUT_DOWN)s_player.vel_y=CLIMB_SPEED;
+    if(s_player.on_ladder){
+        s_player.vel_fy=0;s_player.vel_y=0;
+        if(input&INPUT_UP)s_player.vel_fy=-FY_CLIMB;
+        if(input&INPUT_DOWN)s_player.vel_fy=FY_CLIMB;
+        s_player.vel_y=FX_TO_PX(s_player.vel_fy);
     }else{
-        if((pressed&INPUT_JUMP)&&s_player.on_ground){s_player.vel_y=JUMP_FORCE;s_player.on_ground=0;}
-        s_player.vel_y+=GRAVITY;if(s_player.vel_y>MAX_FALL_SPEED)s_player.vel_y=MAX_FALL_SPEED;}
+        if((pressed&INPUT_JUMP)&&s_player.on_ground){s_player.vel_fy=FY_JUMP;s_player.on_ground=0;}
+        /* Hangtime: reduced gravity near apex */
+        {int16_t abs_vfy=s_player.vel_fy; if(abs_vfy<0)abs_vfy=-abs_vfy;
+         int16_t grav=(abs_vfy<FY_APEX_ZONE)?FY_GRAV_APEX:FY_GRAV;
+         s_player.vel_fy+=grav;
+         if(s_player.vel_fy>FY_MAX_FALL)s_player.vel_fy=FY_MAX_FALL;}
+        s_player.vel_y=FX_TO_PX(s_player.vel_fy);
+    }
 
     if((pressed&INPUT_ATTACK)&&s_player.attacking==0)s_player.attacking=ATTACK_DURATION;
     if(s_player.attacking>0)s_player.attacking--;
@@ -688,22 +726,22 @@ static void action_update(uint16_t input,uint16_t pressed){
             if(fty!=pty){uint16_t mtx=(uint16_t)((s_player.x+PLAYER_HB_X_OFFSET+PLAYER_HB_W/2)/TILE_SIZE);
                 uint8_t tb=hal_tilemap_get(mtx,fty);
                 if((tile_flags(tb)&TILE_PLATFORM)&&pf<(int16_t)(fty*TILE_SIZE)){
-                    s_player.y=(int16_t)(fty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_y=0;s_player.on_ground=1;goto av;}}}
+                    s_player.y=(int16_t)(fty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_y=0;s_player.vel_fy=0;s_player.on_ground=1;goto av;}}}
         s_player.y=ny;
     }else{if(s_player.vel_y>0){int16_t fy=ny+PLAYER_HB_Y_OFFSET+PLAYER_HB_H-1;uint16_t fty=(uint16_t)(fy/TILE_SIZE);
         s_player.y=(int16_t)(fty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.on_ground=1;
-    }else{uint16_t hty=(uint16_t)(hb_y/TILE_SIZE);s_player.y=(int16_t)((hty+1)*TILE_SIZE)-PLAYER_HB_Y_OFFSET;}s_player.vel_y=0;}
+    }else{uint16_t hty=(uint16_t)(hb_y/TILE_SIZE);s_player.y=(int16_t)((hty+1)*TILE_SIZE)-PLAYER_HB_Y_OFFSET;}s_player.vel_y=0;s_player.vel_fy=0;}
 av:
     hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
     if(s_player.invuln==0&&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_DAMAGE)){
-        s_player.hp-=1;s_player.invuln=INVULN_TIME;s_player.vel_y=JUMP_FORCE/2;}
+        s_player.hp-=1;s_player.invuln=INVULN_TIME;s_player.vel_fy=FY_JUMP/2;s_player.vel_y=FX_TO_PX(s_player.vel_fy);}
     if(s_player.invuln>0)s_player.invuln--;
 
     /* Fall death */
     if(s_player.y>(int16_t)(s_act_map_h*TILE_SIZE+32)){s_player.hp-=1;
         if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry)load_entry_room();
         else if(s_map_event_type!=MAP_EVENT_FIELD)load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
-        else{s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-3)*TILE_SIZE);s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;}return;}
+        else{s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-3)*TILE_SIZE);s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;}return;}
 
     /* EXIT tiles -- field maps or dungeon entry room → back to overworld */
     if(box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_EXIT)){
@@ -757,15 +795,26 @@ static void render(void){
     hal_tilemap_draw();
     if(s_scene==SCENE_OVERWORLD)events_draw(s_ow_cam_x,s_ow_cam_y);
 
-    ps.id=0;ps.palette=0;ps.flags=SPRITE_FLAG_VISIBLE;
-    if(s_scene==SCENE_OVERWORLD)ps.pattern=PATTERN_OW_PLAYER;
-    else ps.pattern=s_player.frame;
-    if(s_player.dir)ps.flags|=SPRITE_FLAG_MIRROR_X;
-    if(s_player.invuln>0&&(s_player.invuln&0x02))ps.flags&=~SPRITE_FLAG_VISIBLE;
+    {uint8_t pflags=SPRITE_FLAG_VISIBLE;
+    if(s_player.dir)pflags|=SPRITE_FLAG_MIRROR_X;
+    if(s_player.invuln>0&&(s_player.invuln&0x02))pflags&=~SPRITE_FLAG_VISIBLE;
 
-    if(s_scene==SCENE_ACTION){ps.x=s_player.x-s_camera_x;ps.y=s_player.y;}
-    else{ps.x=s_player.x-s_ow_cam_x;ps.y=s_player.y-s_ow_cam_y;}
-    hal_sprite_set(&ps);hal_sprites_draw();
+    if(s_scene==SCENE_ACTION){
+        /* Top half (head/torso) — sprite slot 0 */
+        ps.id=0;ps.pattern=PATTERN_ACT_TOP;ps.palette=0;ps.flags=pflags;
+        ps.x=s_player.x-s_camera_x;ps.y=s_player.y;
+        hal_sprite_set(&ps);
+        /* Bottom half (legs) — sprite slot 1 */
+        ps.id=1;ps.pattern=PATTERN_ACT_BOT;
+        ps.y=s_player.y+SPRITE_H;
+        hal_sprite_set(&ps);
+    }else{
+        /* Overworld: single 8x8-in-16x16 sprite */
+        ps.id=0;ps.pattern=PATTERN_OW_PLAYER;ps.palette=0;ps.flags=pflags;
+        ps.x=s_player.x-s_ow_cam_x;ps.y=s_player.y-s_ow_cam_y;
+        hal_sprite_set(&ps);
+    }}
+    hal_sprites_draw();
 
     if(s_scene==SCENE_OVERWORLD){
         hal_draw_text(2,2,"OVERWORLD",0xFF);

@@ -392,6 +392,58 @@ int hal_init(void) {
                 s_sprite_patterns[1][py * SPRITE_W + px] = c;
             }
         }
+        /* Pattern 2: Action player TOP (head + torso, upper 16x16 of 16x32)
+         * Pattern 3: Action player BOTTOM (waist + legs, lower 16x16 of 16x32)
+         * Together they form a tall humanoid sprite. */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                /* TOP half: head rows 2-7, shoulders/torso rows 8-15 */
+                /* Hair (top of head) */
+                if (py >= 1 && py <= 2 && px >= 5 && px <= 10)
+                    c = 0x0B; /* dark blue-green hair */
+                /* Head */
+                if (py >= 3 && py <= 7 && px >= 4 && px <= 11)
+                    c = 0x1B; /* bright blue */
+                /* Eyes */
+                if (py == 5 && (px == 6 || px == 9))
+                    c = 0xFF; /* white */
+                /* Neck */
+                if (py == 8 && px >= 6 && px <= 9)
+                    c = 0x1B;
+                /* Shoulders */
+                if (py >= 9 && py <= 10 && px >= 3 && px <= 12)
+                    c = 0x13; /* blue body */
+                /* Upper torso */
+                if (py >= 11 && py <= 15 && px >= 4 && px <= 11)
+                    c = 0x13;
+                /* Belt line at bottom */
+                if (py == 15 && px >= 4 && px <= 11)
+                    c = 0x0B;
+                s_sprite_patterns[2][py * SPRITE_W + px] = c;
+            }
+        }
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                /* BOTTOM half: hips rows 0-3, legs rows 4-13, boots 14-15 */
+                /* Hips */
+                if (py <= 3 && px >= 4 && px <= 11)
+                    c = 0x13;
+                /* Left leg */
+                if (py >= 4 && py <= 13 && px >= 4 && px <= 6)
+                    c = 0x0F; /* dark blue */
+                /* Right leg */
+                if (py >= 4 && py <= 13 && px >= 9 && px <= 11)
+                    c = 0x0F;
+                /* Boots */
+                if (py >= 13 && py <= 15 && px >= 3 && px <= 7)
+                    c = 0x09; /* darker */
+                if (py >= 13 && py <= 15 && px >= 8 && px <= 12)
+                    c = 0x09;
+                s_sprite_patterns[3][py * SPRITE_W + px] = c;
+            }
+        }
     }
 
     s_tilemap_data = NULL;
