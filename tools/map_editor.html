@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HAL Engine Map Editor</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; color:#e0e0e0; font-family:'Segoe UI',monospace; display:flex; height:100vh; overflow:hidden; }
+#sidebar { width:260px; background:#16213e; padding:10px; overflow-y:auto; flex-shrink:0; border-right:2px solid #0f3460; }
+#sidebar h2 { font-size:14px; color:#e94560; margin:8px 0 4px; }
+#sidebar label { font-size:12px; display:block; margin:2px 0; }
+#sidebar select, #sidebar input, #sidebar button {
+  font-size:12px; padding:3px 6px; margin:2px 0; width:100%;
+  background:#0f3460; color:#e0e0e0; border:1px solid #533483; border-radius:3px;
+}
+#sidebar button { cursor:pointer; background:#533483; text-align:center; padding:6px; }
+#sidebar button:hover { background:#e94560; }
+.tile-palette { display:flex; flex-wrap:wrap; gap:2px; margin:4px 0; }
+.tile-swatch { width:28px; height:28px; border:2px solid transparent; cursor:pointer; image-rendering:pixelated; }
+.tile-swatch.selected { border-color:#e94560; }
+.tile-swatch canvas { width:100%; height:100%; image-rendering:pixelated; }
+#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#toolbar { background:#16213e; padding:6px 10px; display:flex; gap:8px; align-items:center; font-size:12px; border-bottom:2px solid #0f3460; }
+#toolbar span { color:#999; }
+#canvas-wrap { flex:1; overflow:auto; position:relative; background:#111; }
+#mapCanvas { image-rendering:pixelated; cursor:crosshair; }
+.room-tab { display:inline-block; padding:4px 10px; margin:1px; cursor:pointer; background:#0f3460; border:1px solid #533483; border-radius:3px; font-size:11px; }
+.room-tab.active { background:#e94560; color:#fff; }
+#room-tabs { margin:4px 0; }
+.transition-row { display:flex; align-items:center; gap:4px; font-size:11px; margin:2px 0; }
+.transition-row select { width:auto; flex:1; }
+#help-text { font-size:10px; color:#777; margin-top:8px; line-height:1.4; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>MAP TYPE</h2>
+  <select id="mapType" onchange="switchMapType()">
+    <option value="overworld">Overworld</option>
+    <option value="field_combat">Field — Combat</option>
+    <option value="field_discovery">Field — Discovery</option>
+    <option value="town">Town / Safe Zone</option>
+    <option value="dungeon_fixed">Dungeon (Type 1 — Fixed)</option>
+    <option value="dungeon_random">Dungeon (Type 2 — Random)</option>
+  </select>
+
+  <h2>MAP SIZE</h2>
+  <label>W: <input id="mapW" type="number" min="4" max="128" value="40" style="width:60px"></label>
+  <label>H: <input id="mapH" type="number" min="4" max="64" value="30" style="width:60px"></label>
+  <button onclick="resizeMap()">Resize / New</button>
+
+  <h2>TILE PALETTE</h2>
+  <div class="tile-palette" id="palette"></div>
+  <div id="tileInfo" style="font-size:11px;color:#aaa;margin:2px 0;">Tile 0: empty</div>
+
+  <div id="dungeon-panel" style="display:none;">
+    <h2>DUNGEON ROOMS</h2>
+    <div id="room-tabs"></div>
+    <button onclick="addRoom()">+ Add Room</button>
+    <button onclick="removeRoom()">- Remove Current</button>
+
+    <div id="fixed-transitions" style="display:none;">
+      <h2>TRANSITIONS (Fixed)</h2>
+      <div id="transition-list"></div>
+      <p style="font-size:10px;color:#777;">Room order is sequential: left transition = previous, right = next.</p>
+    </div>
+  </div>
+
+  <h2>FILE</h2>
+  <button onclick="saveProject()">💾 Save Project (JSON)</button>
+  <button onclick="loadProject()">📂 Load Project (JSON)</button>
+  <button onclick="exportC()">⚡ Export C Headers</button>
+  <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleLoad(event)">
+
+  <div id="help-text">
+    <b>Controls:</b><br>
+    Click or drag to paint tiles.<br>
+    Arrow keys move cursor, Space paints.<br>
+    1-0 keys select tiles 0-9.<br>
+    Right-click to pick tile under cursor.<br>
+    Scroll wheel zooms in/out.
+  </div>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <span>Pos:</span> <span id="posLabel">0, 0</span>
+    <span>|</span>
+    <span>Tile:</span> <span id="curTileLabel">0</span>
+    <span>|</span>
+    <span>Zoom:</span> <span id="zoomLabel">2x</span>
+    <span>|</span>
+    <span id="mapLabel">Overworld 40×30</span>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="mapCanvas"></canvas>
+  </div>
+</div>
+
+<script>
+// ======================================================================
+// RRRGGGBB → CSS color
+// ======================================================================
+function rrrgggbb(v){
+  const r=((v>>5)&7)*255/7|0, g=((v>>2)&7)*255/7|0, b=(v&3)*255/3|0;
+  return `rgb(${r},${g},${b})`;
+}
+
+// ======================================================================
+// Tile definitions matching hal_win64.c
+// ======================================================================
+const TILE_SIZE=16, NUM_TILES=10;
+const TILE_NAMES=['empty','solid wall','brick','breakable','platform','ladder','damage','path','exit','transition'];
+const TILE_COLORS =   [0x0C,0x6D,0x88,0xC8,0x64,0xA4,0xC0,0xAD,0x03,0x5F];
+const TILE_COLORS_HI= [0x10,0xB6,0xCC,0xE9,0xA8,0xE8,0xE4,0xED,0x17,0x9F];
+
+// Pre-render 16x16 tile images
+const tileCanvases=[];
+function initTiles(){
+  for(let t=0;t<NUM_TILES;t++){
+    const cv=document.createElement('canvas'); cv.width=TILE_SIZE; cv.height=TILE_SIZE;
+    const ctx=cv.getContext('2d');
+    const id=ctx.createImageData(TILE_SIZE,TILE_SIZE);
+    for(let py=0;py<TILE_SIZE;py++) for(let px=0;px<TILE_SIZE;px++){
+      let c0=TILE_COLORS[t], c1=TILE_COLORS_HI[t];
+      let c=((px+py)&1)?c0:c1;
+      if(t>=1&&t<=3&&(px===0||py===0||px===TILE_SIZE-1||py===TILE_SIZE-1)) c=c0&0x6D;
+      if(t===4&&py>2) c=0;
+      if(t===5){if((px>=3&&px<=4)||(px>=11&&px<=12)) c=c1; else if(py%4===0) c=c0; else c=0;}
+      if(t===6&&py<8){const sx=px%8;if(sx<py||sx>(7-py)) c=0;}
+      if(t===8){if(px===0||px===TILE_SIZE-1||py===0||py===TILE_SIZE-1) c=c1;
+        else if((px+py)%4===0) c=c1; else c=c0;}
+      if(t===9){if(px<=1||px>=TILE_SIZE-2) c=c1; else if(py<=1) c=c1;
+        else if(py>=TILE_SIZE-2) c=c0; else c=0;}
+      const i=(py*TILE_SIZE+px)*4;
+      const r=((c>>5)&7)*255/7|0, g=((c>>2)&7)*255/7|0, b=(c&3)*255/3|0;
+      id.data[i]=r; id.data[i+1]=g; id.data[i+2]=b; id.data[i+3]=(c===0&&t!==0)?255:255;
+    }
+    ctx.putImageData(id,0,0);
+    tileCanvases.push(cv);
+  }
+}
+
+// ======================================================================
+// State
+// ======================================================================
+let mapType='overworld';
+let mapW=40, mapH=30;
+let tiles=[]; // flat array mapW*mapH
+let selectedTile=0;
+let zoom=2;
+let cursorX=0, cursorY=0;
+let painting=false;
+
+// Dungeon state
+let rooms=[]; // [{w,h,tiles,name}]
+let currentRoom=0;
+let transitions=[]; // for fixed: [{from,to}] — auto-sequential, but stored for display
+
+// ======================================================================
+// Palette UI
+// ======================================================================
+function buildPalette(){
+  const pal=document.getElementById('palette'); pal.innerHTML='';
+  for(let t=0;t<NUM_TILES;t++){
+    const div=document.createElement('div');
+    div.className='tile-swatch'+(t===selectedTile?' selected':'');
+    div.title=`${t}: ${TILE_NAMES[t]}`;
+    div.onclick=()=>selectTile(t);
+    const cv=document.createElement('canvas'); cv.width=TILE_SIZE; cv.height=TILE_SIZE;
+    cv.getContext('2d').drawImage(tileCanvases[t],0,0);
+    div.appendChild(cv);
+    pal.appendChild(div);
+  }
+}
+function selectTile(t){
+  selectedTile=t;
+  document.querySelectorAll('.tile-swatch').forEach((s,i)=>s.className='tile-swatch'+(i===t?' selected':''));
+  document.getElementById('tileInfo').textContent=`Tile ${t}: ${TILE_NAMES[t]}`;
+  document.getElementById('curTileLabel').textContent=t;
+}
+
+// ======================================================================
+// Map init
+// ======================================================================
+function initMap(w,h,fill){
+  mapW=w; mapH=h;
+  tiles=new Array(w*h);
+  for(let i=0;i<w*h;i++) tiles[i]=(fill!==undefined)?fill:0;
+}
+
+function getDefaults(type){
+  switch(type){
+    case 'overworld': return {w:40,h:30};
+    case 'field_combat': return {w:40,h:12};
+    case 'field_discovery': return {w:30,h:12};
+    case 'town': return {w:50,h:12};
+    case 'dungeon_fixed': return {w:20,h:12};
+    case 'dungeon_random': return {w:20,h:12};
+  }
+  return {w:20,h:12};
+}
+
+function applyBorders(t,w,h){
+  // field/town: exit (8) on L/R, solid (1) on bottom 2 rows
+  if(t==='field_combat'||t==='field_discovery'||t==='town'){
+    for(let y=0;y<h;y++){t[y*w]=8; t[y*w+w-1]=8;}  // won't work, t is string
+  }
+}
+
+function newMapForType(type,w,h){
+  const arr=new Array(w*h).fill(0);
+  if(type==='field_combat'||type==='field_discovery'||type==='town'){
+    // exit borders L/R
+    for(let y=0;y<h;y++){arr[y*w]=8; arr[y*w+w-1]=8;}
+    // solid floor bottom 2 rows
+    for(let y=h-2;y<h;y++) for(let x=1;x<w-1;x++) arr[y*w+x]=1;
+  }
+  if(type==='overworld'){
+    // wall border
+    for(let x=0;x<w;x++){arr[x]=1; arr[(h-1)*w+x]=1;}
+    for(let y=0;y<h;y++){arr[y*w]=1; arr[y*w+w-1]=1;}
+  }
+  if(type==='dungeon_fixed'||type==='dungeon_random'){
+    // solid border, transitions on L/R mid-height
+    for(let x=0;x<w;x++){arr[x]=1; arr[(h-1)*w+x]=1; if(h>2) arr[(h-2)*w+x]=1;}
+    for(let y=0;y<h;y++){arr[y*w]=1; arr[y*w+w-1]=1;}
+    // Place transition tiles on left and right walls at mid height
+    const midY=Math.floor(h/2);
+    for(let dy=-1;dy<=1;dy++){
+      const ty=midY+dy;
+      if(ty>0&&ty<h-2){arr[ty*w]=9; arr[ty*w+w-1]=9;}
+    }
+  }
+  return arr;
+}
+
+function switchMapType(){
+  const type=document.getElementById('mapType').value;
+  mapType=type;
+  const d=getDefaults(type);
+  document.getElementById('mapW').value=d.w;
+  document.getElementById('mapH').value=d.h;
+
+  const isDungeon=type==='dungeon_fixed'||type==='dungeon_random';
+  document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
+  document.getElementById('fixed-transitions').style.display=type==='dungeon_fixed'?'block':'none';
+
+  if(isDungeon){
+    rooms=[{w:d.w,h:d.h,tiles:newMapForType(type,d.w,d.h),name:'Room 1'}];
+    currentRoom=0;
+    loadRoomIntoEditor(0);
+    buildRoomTabs();
+    buildTransitions();
+  } else {
+    rooms=[];
+    initMap(d.w,d.h,0);
+    tiles=newMapForType(type,d.w,d.h);
+  }
+  cursorX=0; cursorY=0;
+  updateLabels(); redraw();
+}
+
+function resizeMap(){
+  const w=parseInt(document.getElementById('mapW').value)||20;
+  const h=parseInt(document.getElementById('mapH').value)||12;
+  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
+  if(isDungeon){
+    rooms[currentRoom].w=w; rooms[currentRoom].h=h;
+    rooms[currentRoom].tiles=newMapForType(mapType,w,h);
+    loadRoomIntoEditor(currentRoom);
+  } else {
+    initMap(w,h,0);
+    tiles=newMapForType(mapType,w,h);
+  }
+  cursorX=0; cursorY=0;
+  updateLabels(); redraw();
+}
+
+// ======================================================================
+// Dungeon room management
+// ======================================================================
+function saveCurrentRoom(){
+  if(rooms.length===0) return;
+  rooms[currentRoom].w=mapW;
+  rooms[currentRoom].h=mapH;
+  rooms[currentRoom].tiles=tiles.slice();
+}
+function loadRoomIntoEditor(idx){
+  if(idx<0||idx>=rooms.length) return;
+  currentRoom=idx;
+  const r=rooms[idx];
+  mapW=r.w; mapH=r.h; tiles=r.tiles.slice();
+  document.getElementById('mapW').value=mapW;
+  document.getElementById('mapH').value=mapH;
+  updateLabels(); redraw();
+}
+function addRoom(){
+  saveCurrentRoom();
+  const d=getDefaults(mapType);
+  const w=parseInt(document.getElementById('mapW').value)||d.w;
+  const h=parseInt(document.getElementById('mapH').value)||d.h;
+  rooms.push({w,h,tiles:newMapForType(mapType,w,h),name:`Room ${rooms.length+1}`});
+  currentRoom=rooms.length-1;
+  loadRoomIntoEditor(currentRoom);
+  buildRoomTabs(); buildTransitions();
+}
+function removeRoom(){
+  if(rooms.length<=1) return;
+  rooms.splice(currentRoom,1);
+  if(currentRoom>=rooms.length) currentRoom=rooms.length-1;
+  // rename
+  rooms.forEach((r,i)=>r.name=`Room ${i+1}`);
+  loadRoomIntoEditor(currentRoom);
+  buildRoomTabs(); buildTransitions();
+}
+function buildRoomTabs(){
+  const el=document.getElementById('room-tabs'); el.innerHTML='';
+  rooms.forEach((r,i)=>{
+    const tab=document.createElement('span');
+    tab.className='room-tab'+(i===currentRoom?' active':'');
+    tab.textContent=r.name;
+    tab.onclick=()=>{saveCurrentRoom();loadRoomIntoEditor(i);buildRoomTabs();};
+    el.appendChild(tab);
+  });
+}
+function buildTransitions(){
+  if(mapType!=='dungeon_fixed') return;
+  const el=document.getElementById('transition-list'); el.innerHTML='';
+  for(let i=0;i<rooms.length;i++){
+    const row=document.createElement('div'); row.className='transition-row';
+    const prev=i>0?rooms[i-1].name:'(entrance)';
+    const next=i<rooms.length-1?rooms[i+1].name:'(exit)';
+    row.innerHTML=`<span>${prev}</span> → <b>${rooms[i].name}</b> → <span>${next}</span>`;
+    el.appendChild(row);
+  }
+}
+
+// ======================================================================
+// Canvas rendering
+// ======================================================================
+const canvas=document.getElementById('mapCanvas');
+const ctx=canvas.getContext('2d');
+
+function redraw(){
+  const pw=mapW*TILE_SIZE*zoom, ph=mapH*TILE_SIZE*zoom;
+  canvas.width=pw; canvas.height=ph;
+  ctx.imageSmoothingEnabled=false;
+
+  // Draw tiles
+  for(let y=0;y<mapH;y++) for(let x=0;x<mapW;x++){
+    const t=tiles[y*mapW+x]||0;
+    if(t<NUM_TILES){
+      ctx.drawImage(tileCanvases[t], x*TILE_SIZE*zoom, y*TILE_SIZE*zoom, TILE_SIZE*zoom, TILE_SIZE*zoom);
+    }
+  }
+
+  // Grid lines (subtle)
+  ctx.strokeStyle='rgba(255,255,255,0.08)';
+  ctx.lineWidth=1;
+  for(let x=0;x<=mapW;x++){ctx.beginPath();ctx.moveTo(x*TILE_SIZE*zoom,0);ctx.lineTo(x*TILE_SIZE*zoom,ph);ctx.stroke();}
+  for(let y=0;y<=mapH;y++){ctx.beginPath();ctx.moveTo(0,y*TILE_SIZE*zoom);ctx.lineTo(pw,y*TILE_SIZE*zoom);ctx.stroke();}
+
+  // Cursor
+  ctx.strokeStyle='#e94560'; ctx.lineWidth=2;
+  ctx.strokeRect(cursorX*TILE_SIZE*zoom+1, cursorY*TILE_SIZE*zoom+1, TILE_SIZE*zoom-2, TILE_SIZE*zoom-2);
+}
+
+function updateLabels(){
+  document.getElementById('posLabel').textContent=`${cursorX}, ${cursorY}`;
+  document.getElementById('zoomLabel').textContent=`${zoom}x`;
+  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
+  let label=document.getElementById('mapType').selectedOptions[0].text+` ${mapW}×${mapH}`;
+  if(isDungeon) label+=` — ${rooms[currentRoom].name}`;
+  document.getElementById('mapLabel').textContent=label;
+}
+
+// ======================================================================
+// Input: mouse
+// ======================================================================
+function canvasCoords(e){
+  const rect=canvas.getBoundingClientRect();
+  const x=Math.floor((e.clientX-rect.left)/(TILE_SIZE*zoom));
+  const y=Math.floor((e.clientY-rect.top)/(TILE_SIZE*zoom));
+  return {x:Math.max(0,Math.min(x,mapW-1)), y:Math.max(0,Math.min(y,mapH-1))};
+}
+
+function paintAt(x,y){
+  if(x>=0&&x<mapW&&y>=0&&y<mapH){
+    tiles[y*mapW+x]=selectedTile;
+    redraw();
+  }
+}
+
+canvas.addEventListener('mousedown',e=>{
+  e.preventDefault();
+  const {x,y}=canvasCoords(e);
+  cursorX=x; cursorY=y;
+  if(e.button===2){
+    // Right click: pick tile
+    selectTile(tiles[y*mapW+x]||0);
+    buildPalette();
+  } else {
+    painting=true;
+    paintAt(x,y);
+  }
+  updateLabels();
+});
+canvas.addEventListener('mousemove',e=>{
+  const {x,y}=canvasCoords(e);
+  cursorX=x; cursorY=y;
+  if(painting) paintAt(x,y);
+  updateLabels(); redraw();
+});
+canvas.addEventListener('mouseup',()=>painting=false);
+canvas.addEventListener('mouseleave',()=>painting=false);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+// Zoom
+document.getElementById('canvas-wrap').addEventListener('wheel',e=>{
+  e.preventDefault();
+  if(e.deltaY<0) zoom=Math.min(zoom+1,8);
+  else zoom=Math.max(zoom-1,1);
+  updateLabels(); redraw();
+},{passive:false});
+
+// ======================================================================
+// Input: keyboard
+// ======================================================================
+document.addEventListener('keydown',e=>{
+  // Don't intercept when typing in inputs
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+
+  switch(e.key){
+    case 'ArrowLeft':  cursorX=Math.max(0,cursorX-1); e.preventDefault(); break;
+    case 'ArrowRight': cursorX=Math.min(mapW-1,cursorX+1); e.preventDefault(); break;
+    case 'ArrowUp':    cursorY=Math.max(0,cursorY-1); e.preventDefault(); break;
+    case 'ArrowDown':  cursorY=Math.min(mapH-1,cursorY+1); e.preventDefault(); break;
+    case ' ':          paintAt(cursorX,cursorY); e.preventDefault(); break;
+    case '1': selectTile(0); buildPalette(); break;
+    case '2': selectTile(1); buildPalette(); break;
+    case '3': selectTile(2); buildPalette(); break;
+    case '4': selectTile(3); buildPalette(); break;
+    case '5': selectTile(4); buildPalette(); break;
+    case '6': selectTile(5); buildPalette(); break;
+    case '7': selectTile(6); buildPalette(); break;
+    case '8': selectTile(7); buildPalette(); break;
+    case '9': selectTile(8); buildPalette(); break;
+    case '0': selectTile(9); buildPalette(); break;
+    case '+': case '=': zoom=Math.min(zoom+1,8); break;
+    case '-': zoom=Math.max(zoom-1,1); break;
+  }
+  // Scroll cursor into view
+  const wrap=document.getElementById('canvas-wrap');
+  const cx=cursorX*TILE_SIZE*zoom, cy=cursorY*TILE_SIZE*zoom;
+  const ts=TILE_SIZE*zoom;
+  if(cx<wrap.scrollLeft) wrap.scrollLeft=cx;
+  if(cx+ts>wrap.scrollLeft+wrap.clientWidth) wrap.scrollLeft=cx+ts-wrap.clientWidth;
+  if(cy<wrap.scrollTop) wrap.scrollTop=cy;
+  if(cy+ts>wrap.scrollTop+wrap.clientHeight) wrap.scrollTop=cy+ts-wrap.clientHeight;
+
+  updateLabels(); redraw();
+});
+
+// ======================================================================
+// Save / Load (JSON)
+// ======================================================================
+function buildProjectData(){
+  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
+  if(isDungeon) saveCurrentRoom();
+  return {
+    version:1,
+    mapType,
+    ...(isDungeon ? {rooms:rooms.map(r=>({w:r.w,h:r.h,tiles:r.tiles,name:r.name})),currentRoom} : {mapW,mapH,tiles}),
+  };
+}
+
+function saveProject(){
+  const data=buildProjectData();
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`hal_map_${mapType}.json`;
+  a.click();
+}
+
+function loadProject(){
+  document.getElementById('fileInput').click();
+}
+function handleLoad(e){
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try {
+      const data=JSON.parse(ev.target.result);
+      if(data.version!==1){alert('Unknown file version');return;}
+      mapType=data.mapType||'overworld';
+      document.getElementById('mapType').value=mapType;
+
+      const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
+      document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
+      document.getElementById('fixed-transitions').style.display=mapType==='dungeon_fixed'?'block':'none';
+
+      if(isDungeon&&data.rooms){
+        rooms=data.rooms.map(r=>({w:r.w,h:r.h,tiles:r.tiles.slice(),name:r.name}));
+        currentRoom=data.currentRoom||0;
+        loadRoomIntoEditor(currentRoom);
+        buildRoomTabs(); buildTransitions();
+      } else {
+        mapW=data.mapW; mapH=data.mapH; tiles=data.tiles.slice();
+        rooms=[]; currentRoom=0;
+        document.getElementById('mapW').value=mapW;
+        document.getElementById('mapH').value=mapH;
+      }
+      cursorX=0; cursorY=0;
+      updateLabels(); redraw();
+    } catch(err){ alert('Failed to load: '+err.message); }
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
+
+// ======================================================================
+// Export to C header
+// ======================================================================
+function tilesRowStr(arr,w,y){
+  let s='';
+  for(let x=0;x<w;x++){
+    s+=arr[y*w+x];
+    if(x<w-1) s+=',';
+  }
+  return s;
+}
+
+function exportC(){
+  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
+  if(isDungeon) saveCurrentRoom();
+
+  let out='';
+  out+=`/*==========================================================================\n`;
+  out+=` * Auto-generated by HAL Engine Map Editor\n`;
+  out+=` * Map type: ${mapType}\n`;
+  out+=` *==========================================================================*/\n\n`;
+
+  if(isDungeon){
+    // Export each room
+    rooms.forEach((r,i)=>{
+      const tag=`exported_room_${i}`;
+      out+=`#define ${tag.toUpperCase()}_W ${r.w}\n`;
+      out+=`#define ${tag.toUpperCase()}_H ${r.h}\n`;
+      out+=`static const uint8_t ${tag}[${r.h} * ${r.w}] = {\n`;
+      for(let y=0;y<r.h;y++){
+        out+=tilesRowStr(r.tiles,r.w,y);
+        out+=(y<r.h-1)?',\n':'\n';
+      }
+      out+=`};\n\n`;
+    });
+
+    // Room pool definition
+    out+=`/* Room pool for this dungeon */\n`;
+    out+=`#define EXPORTED_DUNGEON_ROOM_COUNT ${rooms.length}\n`;
+    out+=`static const dungeon_room_def_t exported_room_pool[EXPORTED_DUNGEON_ROOM_COUNT] = {\n`;
+    rooms.forEach((r,i)=>{
+      const tag=`exported_room_${i}`;
+      // Find transition tile positions for entry_back (leftmost 9) and entry_fwd (rightmost 9)
+      let backX=2*16,backY=Math.floor(r.h/2)*16;
+      let fwdX=(r.w-3)*16,fwdY=Math.floor(r.h/2)*16;
+      for(let y=0;y<r.h;y++) for(let x=0;x<r.w;x++){
+        if(r.tiles[y*r.w+x]===9){
+          if(x<=1){backX=2*16;backY=y*16;}
+          if(x>=r.w-2){fwdX=(r.w-3)*16;fwdY=y*16;}
+        }
+      }
+      out+=`    { ${tag}, ${tag.toUpperCase()}_W, ${tag.toUpperCase()}_H, ${backX},${backY}, ${fwdX},${fwdY} },\n`;
+    });
+    out+=`};\n\n`;
+
+    if(mapType==='dungeon_fixed'){
+      out+=`/* Fixed dungeon room order */\n`;
+      out+=`#define EXPORTED_FIXED_DUNGEON_SIZE ${rooms.length}\n`;
+      out+=`static const uint8_t exported_fixed_order[EXPORTED_FIXED_DUNGEON_SIZE] = { `;
+      out+=rooms.map((_,i)=>i).join(', ');
+      out+=` };\n`;
+    }
+  } else {
+    // Single map export
+    const tag=mapType.replace(/[^a-z0-9]/g,'_');
+    out+=`#define EXPORTED_${tag.toUpperCase()}_W ${mapW}\n`;
+    out+=`#define EXPORTED_${tag.toUpperCase()}_H ${mapH}\n`;
+    out+=`static const uint8_t exported_${tag}[${mapH} * ${mapW}] = {\n`;
+    for(let y=0;y<mapH;y++){
+      out+=tilesRowStr(tiles,mapW,y);
+      out+=(y<mapH-1)?',\n':'\n';
+    }
+    out+=`};\n`;
+  }
+
+  // Download
+  const blob=new Blob([out],{type:'text/plain'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`hal_map_${mapType}.h`;
+  a.click();
+}
+
+// ======================================================================
+// Init
+// ======================================================================
+initTiles();
+buildPalette();
+switchMapType();
+</script>
+</body>
+</html>
