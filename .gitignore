@@ -1,0 +1,27 @@
+# Build outputs
+build/out/
+build/out_next/
+dist/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Compiled objects
+*.o
+*.obj
+*.exe
+*.nex
+*.bin
+*.map
+*.lis
+
+# vcpkg local installs (managed by manifest)
+build/vcpkg_installed/

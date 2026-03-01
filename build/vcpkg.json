@@ -1,0 +1,9 @@
+{
+    "name": "hal-engine",
+    "version-string": "1.0.0",
+    "description": "Portable 2D game engine targeting ZX Spectrum Next and Windows",
+    "dependencies": [
+        "sdl2",
+        "sdl2-mixer"
+    ]
+}

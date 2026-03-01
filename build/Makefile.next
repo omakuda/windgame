@@ -1,0 +1,79 @@
+#============================================================================
+# Makefile.next - Build game for ZX Spectrum Next using z88dk
+#
+# Usage:
+#   make -f Makefile.next          # release build
+#   make -f Makefile.next debug    # debug build with UART output
+#   make -f Makefile.next clean
+#
+# Prerequisites:
+#   - z88dk installed and on PATH (zcc, z80asm)
+#   - CSpect or ZEsarUX for testing
+#============================================================================
+
+# Compiler and flags
+ZCC        = zcc
+TARGET     = +zxn
+CLIB       = -clib=sdcc_iy
+STARTUP    = -startup=0
+PRAGMA     = -pragma-include:zpragma.inc
+
+# Optimization: SO3 is aggressive; use SO2 if you get codegen bugs
+OPTFLAGS   = -SO3 -vn
+
+# Output
+OUTNAME    = game
+OUTFILE    = $(OUTNAME).nex
+
+# Source files
+SRC_GAME   = ../src/game/main.c ../src/game/overworld_events.c
+SRC_HAL    = ../src/hal/next/hal_next.c
+
+SOURCES    = $(SRC_GAME) $(SRC_HAL)
+
+# Include paths (project root = ../src so includes like "hal/hal.h" resolve)
+INCLUDES   = -I../src
+
+# Debug flags
+ifdef DEBUG
+DEBUGFLAGS = -DDEBUG
+else
+DEBUGFLAGS =
+endif
+
+# Combined flags
+CFLAGS     = $(TARGET) $(CLIB) $(STARTUP) $(PRAGMA) $(OPTFLAGS) $(INCLUDES) $(DEBUGFLAGS)
+
+#---------------------------------------------------------------------------
+# Targets
+#---------------------------------------------------------------------------
+
+.PHONY: all debug clean run
+
+all: $(OUTFILE)
+
+$(OUTFILE): $(SOURCES) zpragma.inc
+	$(ZCC) $(CFLAGS) $(SOURCES) -o $(OUTNAME) -create-app
+
+debug:
+	$(MAKE) -f Makefile.next DEBUG=1
+
+clean:
+	rm -f $(OUTNAME) $(OUTNAME).nex $(OUTNAME).map $(OUTNAME)_*.bin *.o *.lis
+
+# Run in CSpect (adjust path to your CSpect installation)
+run: $(OUTFILE)
+	@echo "Run with: CSpect -w3 -tv -mmc=./sdcard/ $(OUTFILE)"
+
+#---------------------------------------------------------------------------
+# z88dk pragma configuration
+# This file controls memory layout, stack size, etc.
+#---------------------------------------------------------------------------
+zpragma.inc:
+	@echo "; z88dk pragma configuration for Spectrum Next" > zpragma.inc
+	@echo "pragma-define:CRT_ORG_CODE = 0x8000" >> zpragma.inc
+	@echo "pragma-define:REGISTER_SP = 0xFFFE" >> zpragma.inc
+	@echo "pragma-define:CRT_STACK_SIZE = 512" >> zpragma.inc
+	@echo "pragma-define:CRT_ENABLE_EIDI = 0x01" >> zpragma.inc
+	@echo "pragma-define:CRT_ON_EXIT = 0x0000" >> zpragma.inc
+	@echo "pragma-define:__CLIB_OPT_MULTITHREAD = 0" >> zpragma.inc
