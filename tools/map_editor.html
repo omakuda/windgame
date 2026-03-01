@@ -45,6 +45,10 @@ body { background:#1a1a2e; color:#e0e0e0; font-family:'Segoe UI',monospace; disp
     <option value="dungeon_random">Dungeon (Type 2 — Random)</option>
   </select>
 
+  <h2>MAP NAME</h2>
+  <input id="mapName" type="text" placeholder="e.g. plains_overworld" value="untitled" oninput="onMapNameChange()">
+  <div style="font-size:10px;color:#777;margin:2px 0;">Used as C identifier in export. Letters, numbers, underscores only.</div>
+
   <h2>MAP SIZE</h2>
   <label>W: <input id="mapW" type="number" min="4" max="128" value="40" style="width:60px"></label>
   <label>H: <input id="mapH" type="number" min="4" max="64" value="30" style="width:60px"></label>
@@ -57,6 +61,7 @@ body { background:#1a1a2e; color:#e0e0e0; font-family:'Segoe UI',monospace; disp
   <div id="dungeon-panel" style="display:none;">
     <h2>DUNGEON ROOMS</h2>
     <div id="room-tabs"></div>
+    <label style="margin:4px 0;">Room name: <input id="roomName" type="text" value="" style="width:140px" oninput="onRoomNameChange()"></label>
     <button onclick="addRoom()">+ Add Room</button>
     <button onclick="removeRoom()">- Remove Current</button>
 
@@ -146,6 +151,7 @@ function initTiles(){
 // State
 // ======================================================================
 let mapType='overworld';
+let mapName='untitled';
 let mapW=40, mapH=30;
 let tiles=[]; // flat array mapW*mapH
 let selectedTile=0;
@@ -157,6 +163,15 @@ let painting=false;
 let rooms=[]; // [{w,h,tiles,name}]
 let currentRoom=0;
 let transitions=[]; // for fixed: [{from,to}] — auto-sequential, but stored for display
+
+// Sanitize a string into a valid C identifier
+function sanitizeId(s){ return s.replace(/[^a-zA-Z0-9_]/g,'_').replace(/^[0-9]/,'_$&').toLowerCase(); }
+function onMapNameChange(){ mapName=document.getElementById('mapName').value||'untitled'; updateLabels(); }
+function onRoomNameChange(){
+  if(rooms.length===0) return;
+  rooms[currentRoom].name=document.getElementById('roomName').value||`room_${currentRoom+1}`;
+  buildRoomTabs(); buildTransitions();
+}
 
 // ======================================================================
 // Palette UI
@@ -243,12 +258,18 @@ function switchMapType(){
   document.getElementById('mapW').value=d.w;
   document.getElementById('mapH').value=d.h;
 
+  // Set a sensible default name
+  const defaultNames={overworld:'overworld_main',field_combat:'field_combat',field_discovery:'field_discovery',
+    town:'town_oasis',dungeon_fixed:'dungeon_fixed',dungeon_random:'dungeon_random'};
+  mapName=defaultNames[type]||'untitled';
+  document.getElementById('mapName').value=mapName;
+
   const isDungeon=type==='dungeon_fixed'||type==='dungeon_random';
   document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
   document.getElementById('fixed-transitions').style.display=type==='dungeon_fixed'?'block':'none';
 
   if(isDungeon){
-    rooms=[{w:d.w,h:d.h,tiles:newMapForType(type,d.w,d.h),name:'Room 1'}];
+    rooms=[{w:d.w,h:d.h,tiles:newMapForType(type,d.w,d.h),name:'entrance'}];
     currentRoom=0;
     loadRoomIntoEditor(0);
     buildRoomTabs();
@@ -294,6 +315,8 @@ function loadRoomIntoEditor(idx){
   mapW=r.w; mapH=r.h; tiles=r.tiles.slice();
   document.getElementById('mapW').value=mapW;
   document.getElementById('mapH').value=mapH;
+  const rn=document.getElementById('roomName');
+  if(rn) rn.value=r.name;
   updateLabels(); redraw();
 }
 function addRoom(){
@@ -301,7 +324,7 @@ function addRoom(){
   const d=getDefaults(mapType);
   const w=parseInt(document.getElementById('mapW').value)||d.w;
   const h=parseInt(document.getElementById('mapH').value)||d.h;
-  rooms.push({w,h,tiles:newMapForType(mapType,w,h),name:`Room ${rooms.length+1}`});
+  rooms.push({w,h,tiles:newMapForType(mapType,w,h),name:`room_${rooms.length+1}`});
   currentRoom=rooms.length-1;
   loadRoomIntoEditor(currentRoom);
   buildRoomTabs(); buildTransitions();
@@ -310,8 +333,6 @@ function removeRoom(){
   if(rooms.length<=1) return;
   rooms.splice(currentRoom,1);
   if(currentRoom>=rooms.length) currentRoom=rooms.length-1;
-  // rename
-  rooms.forEach((r,i)=>r.name=`Room ${i+1}`);
   loadRoomIntoEditor(currentRoom);
   buildRoomTabs(); buildTransitions();
 }
@@ -371,7 +392,7 @@ function updateLabels(){
   document.getElementById('posLabel').textContent=`${cursorX}, ${cursorY}`;
   document.getElementById('zoomLabel').textContent=`${zoom}x`;
   const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-  let label=document.getElementById('mapType').selectedOptions[0].text+` ${mapW}×${mapH}`;
+  let label=`"${mapName}" — ${document.getElementById('mapType').selectedOptions[0].text} ${mapW}×${mapH}`;
   if(isDungeon) label+=` — ${rooms[currentRoom].name}`;
   document.getElementById('mapLabel').textContent=label;
 }
@@ -470,8 +491,9 @@ function buildProjectData(){
   const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
   if(isDungeon) saveCurrentRoom();
   return {
-    version:1,
+    version:2,
     mapType,
+    mapName,
     ...(isDungeon ? {rooms:rooms.map(r=>({w:r.w,h:r.h,tiles:r.tiles,name:r.name})),currentRoom} : {mapW,mapH,tiles}),
   };
 }
@@ -481,7 +503,7 @@ function saveProject(){
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`hal_map_${mapType}.json`;
+  a.download=`${sanitizeId(mapName)}.json`;
   a.click();
 }
 
@@ -494,9 +516,11 @@ function handleLoad(e){
   reader.onload=ev=>{
     try {
       const data=JSON.parse(ev.target.result);
-      if(data.version!==1){alert('Unknown file version');return;}
+      if(data.version!==1&&data.version!==2){alert('Unknown file version');return;}
       mapType=data.mapType||'overworld';
+      mapName=data.mapName||'untitled';
       document.getElementById('mapType').value=mapType;
+      document.getElementById('mapName').value=mapName;
 
       const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
       document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
@@ -536,17 +560,18 @@ function tilesRowStr(arr,w,y){
 function exportC(){
   const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
   if(isDungeon) saveCurrentRoom();
+  const base=sanitizeId(mapName);
 
   let out='';
   out+=`/*==========================================================================\n`;
   out+=` * Auto-generated by HAL Engine Map Editor\n`;
-  out+=` * Map type: ${mapType}\n`;
+  out+=` * Map: "${mapName}"  Type: ${mapType}\n`;
   out+=` *==========================================================================*/\n\n`;
 
   if(isDungeon){
-    // Export each room
+    // Export each room using its name
     rooms.forEach((r,i)=>{
-      const tag=`exported_room_${i}`;
+      const tag=`${base}_${sanitizeId(r.name)}`;
       out+=`#define ${tag.toUpperCase()}_W ${r.w}\n`;
       out+=`#define ${tag.toUpperCase()}_H ${r.h}\n`;
       out+=`static const uint8_t ${tag}[${r.h} * ${r.w}] = {\n`;
@@ -558,11 +583,11 @@ function exportC(){
     });
 
     // Room pool definition
-    out+=`/* Room pool for this dungeon */\n`;
-    out+=`#define EXPORTED_DUNGEON_ROOM_COUNT ${rooms.length}\n`;
-    out+=`static const dungeon_room_def_t exported_room_pool[EXPORTED_DUNGEON_ROOM_COUNT] = {\n`;
+    out+=`/* Room pool: ${mapName} (${rooms.length} rooms) */\n`;
+    out+=`#define ${base.toUpperCase()}_ROOM_COUNT ${rooms.length}\n`;
+    out+=`static const dungeon_room_def_t ${base}_room_pool[${base.toUpperCase()}_ROOM_COUNT] = {\n`;
     rooms.forEach((r,i)=>{
-      const tag=`exported_room_${i}`;
+      const tag=`${base}_${sanitizeId(r.name)}`;
       // Find transition tile positions for entry_back (leftmost 9) and entry_fwd (rightmost 9)
       let backX=2*16,backY=Math.floor(r.h/2)*16;
       let fwdX=(r.w-3)*16,fwdY=Math.floor(r.h/2)*16;
@@ -572,23 +597,22 @@ function exportC(){
           if(x>=r.w-2){fwdX=(r.w-3)*16;fwdY=y*16;}
         }
       }
-      out+=`    { ${tag}, ${tag.toUpperCase()}_W, ${tag.toUpperCase()}_H, ${backX},${backY}, ${fwdX},${fwdY} },\n`;
+      out+=`    { ${tag}, ${tag.toUpperCase()}_W, ${tag.toUpperCase()}_H, ${backX},${backY}, ${fwdX},${fwdY} }, /* ${r.name} */\n`;
     });
     out+=`};\n\n`;
 
     if(mapType==='dungeon_fixed'){
-      out+=`/* Fixed dungeon room order */\n`;
-      out+=`#define EXPORTED_FIXED_DUNGEON_SIZE ${rooms.length}\n`;
-      out+=`static const uint8_t exported_fixed_order[EXPORTED_FIXED_DUNGEON_SIZE] = { `;
+      out+=`/* Fixed dungeon order: ${rooms.map(r=>r.name).join(' → ')} */\n`;
+      out+=`#define ${base.toUpperCase()}_SIZE ${rooms.length}\n`;
+      out+=`static const uint8_t ${base}_order[${base.toUpperCase()}_SIZE] = { `;
       out+=rooms.map((_,i)=>i).join(', ');
       out+=` };\n`;
     }
   } else {
-    // Single map export
-    const tag=mapType.replace(/[^a-z0-9]/g,'_');
-    out+=`#define EXPORTED_${tag.toUpperCase()}_W ${mapW}\n`;
-    out+=`#define EXPORTED_${tag.toUpperCase()}_H ${mapH}\n`;
-    out+=`static const uint8_t exported_${tag}[${mapH} * ${mapW}] = {\n`;
+    // Single map export using map name
+    out+=`#define ${base.toUpperCase()}_W ${mapW}\n`;
+    out+=`#define ${base.toUpperCase()}_H ${mapH}\n`;
+    out+=`static const uint8_t ${base}[${mapH} * ${mapW}] = {\n`;
     for(let y=0;y<mapH;y++){
       out+=tilesRowStr(tiles,mapW,y);
       out+=(y<mapH-1)?',\n':'\n';
@@ -600,7 +624,7 @@ function exportC(){
   const blob=new Blob([out],{type:'text/plain'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
-  a.download=`hal_map_${mapType}.h`;
+  a.download=`${base}.h`;
   a.click();
 }
 
