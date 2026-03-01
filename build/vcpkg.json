@@ -1,5 +1,5 @@
 {
-    "name": "hal-engine",
+    "name": "windgame",
     "version-string": "1.0.0",
     "description": "Portable 2D game engine targeting ZX Spectrum Next and Windows",
     "dependencies": [

@@ -20,7 +20,7 @@ setlocal enabledelayedexpansion
 ::   VS_GENERATOR       CMake generator (default: auto-detect VS version)
 ::============================================================================
 
-set "PROJECT_NAME=game"
+set "PROJECT_NAME=windgame"
 set "BUILD_DIR=build\out"
 set "NEXT_BUILD_DIR=build\out_next"
 set "DIST_DIR=dist"
@@ -246,7 +246,7 @@ if not defined EXE_PATH (
     exit /b 1
 )
 :: Stage files
-set "STAGE=%DIST_DIR%\hal_engine_win64"
+set "STAGE=%DIST_DIR%\windgame_win64"
 if exist "%STAGE%" rmdir /s /q "%STAGE%"
 mkdir "%STAGE%"
 copy "%EXE_PATH%" "%STAGE%\" >nul
@@ -254,10 +254,10 @@ if defined DLL_PATH copy "%DLL_PATH%" "%STAGE%\" >nul
 if exist "README.md" copy "README.md" "%STAGE%\" >nul
 
 :: Create zip (use tar on Win10+ or PowerShell)
-set "ZIP_NAME=hal_engine_win64.zip"
+set "ZIP_NAME=windgame_win64.zip"
 pushd "%DIST_DIR%"
 if exist "%ZIP_NAME%" del "%ZIP_NAME%"
-powershell -NoProfile -Command "Compress-Archive -Path 'hal_engine_win64\*' -DestinationPath '%ZIP_NAME%' -Force"
+powershell -NoProfile -Command "Compress-Archive -Path 'windgame_win64\*' -DestinationPath '%ZIP_NAME%' -Force"
 popd
 echo [OK] %DIST_DIR%\%ZIP_NAME%
 exit /b 0
@@ -269,16 +269,16 @@ call :package_win
 :: Add Next binary if it exists
 if exist "%NEXT_BUILD_DIR%\game.nex" (
     echo [pkg] Including Next build...
-    set "STAGE=%DIST_DIR%\hal_engine_next"
+    set "STAGE=%DIST_DIR%\windgame_next"
     if exist "%STAGE%" rmdir /s /q "%STAGE%"
     mkdir "%STAGE%"
     copy "%NEXT_BUILD_DIR%\game.nex" "%STAGE%\" >nul
     if exist "README.md" copy "README.md" "%STAGE%\" >nul
     pushd "%DIST_DIR%"
-    if exist "hal_engine_next.zip" del "hal_engine_next.zip"
-    powershell -NoProfile -Command "Compress-Archive -Path 'hal_engine_next\*' -DestinationPath 'hal_engine_next.zip' -Force"
+    if exist "windgame_next.zip" del "windgame_next.zip"
+    powershell -NoProfile -Command "Compress-Archive -Path 'windgame_next\*' -DestinationPath 'windgame_next.zip' -Force"
     popd
-    echo [OK] %DIST_DIR%\hal_engine_next.zip
+    echo [OK] %DIST_DIR%\windgame_next.zip
 )
 exit /b 0
 

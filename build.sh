@@ -23,7 +23,7 @@
 
 set -euo pipefail
 
-PROJECT_NAME="game"
+PROJECT_NAME="windgame"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build/out"
 NEXT_BUILD_DIR="${SCRIPT_DIR}/build/out_next"
@@ -243,8 +243,8 @@ build_next() {
     make -f Makefile.next
     popd > /dev/null
 
-    if [ -f "${NEXT_BUILD_DIR}/game.nex" ]; then
-        ok "Built: ${NEXT_BUILD_DIR}/game.nex"
+    if [ -f "${NEXT_BUILD_DIR}/windgame.nex" ]; then
+        ok "Built: ${NEXT_BUILD_DIR}/windgame.nex"
     else
         die "Next build produced no output."
     fi
@@ -267,7 +267,7 @@ package_release() {
         return 1
     fi
 
-    local stage="${DIST_DIR}/hal_engine_${PLATFORM}"
+    local stage="${DIST_DIR}/windgame_${PLATFORM}"
     rm -rf "$stage"
     mkdir -p "$stage"
     cp "$exe" "$stage/"
@@ -281,26 +281,26 @@ package_release() {
         done
     fi
 
-    local archive="hal_engine_${PLATFORM}.tar.gz"
-    tar -czf "${DIST_DIR}/${archive}" -C "${DIST_DIR}" "hal_engine_${PLATFORM}"
+    local archive="windgame_${PLATFORM}.tar.gz"
+    tar -czf "${DIST_DIR}/${archive}" -C "${DIST_DIR}" "windgame_${PLATFORM}"
     ok "${DIST_DIR}/${archive}"
 }
 
 # ========================================================================
 package_next() {
 # ========================================================================
-    if [ ! -f "${NEXT_BUILD_DIR}/game.nex" ]; then
+    if [ ! -f "${NEXT_BUILD_DIR}/windgame.nex" ]; then
         warn "No Next build to package."
         return 1
     fi
     mkdir -p "${DIST_DIR}"
-    local stage="${DIST_DIR}/hal_engine_next"
+    local stage="${DIST_DIR}/windgame_next"
     rm -rf "$stage"
     mkdir -p "$stage"
-    cp "${NEXT_BUILD_DIR}/game.nex" "$stage/"
+    cp "${NEXT_BUILD_DIR}/windgame.nex" "$stage/"
     [ -f "${SCRIPT_DIR}/README.md" ] && cp "${SCRIPT_DIR}/README.md" "$stage/"
-    tar -czf "${DIST_DIR}/hal_engine_next.tar.gz" -C "${DIST_DIR}" "hal_engine_next"
-    ok "${DIST_DIR}/hal_engine_next.tar.gz"
+    tar -czf "${DIST_DIR}/windgame_next.tar.gz" -C "${DIST_DIR}" "windgame_next"
+    ok "${DIST_DIR}/windgame_next.tar.gz"
 }
 
 # ========================================================================

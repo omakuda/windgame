@@ -8,7 +8,7 @@
 #        cd C:\vcpkg && bootstrap-vcpkg.bat
 #
 #   2. Build (vcpkg.json manifest auto-installs SDL2):
-#        cd hal_engine\build
+#        cd D:\Projects\windgame\build
 #        cmake -B out -G "Visual Studio 17 2022" -A x64 ^
 #              -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
 #        cmake --build out --config Release
@@ -30,7 +30,7 @@
 #============================================================================
 
 cmake_minimum_required(VERSION 3.16)
-project(game C)
+project(windgame C)
 
 set(CMAKE_C_STANDARD 99)
 
@@ -65,12 +65,12 @@ set(HAL_SOURCES
 # Executable
 #---------------------------------------------------------------------------
 
-add_executable(game
+add_executable(windgame
     ${GAME_SOURCES}
     ${HAL_SOURCES}
 )
 
-target_include_directories(game PRIVATE
+target_include_directories(windgame PRIVATE
     ../src
 )
 
@@ -79,40 +79,40 @@ target_include_directories(game PRIVATE
 #---------------------------------------------------------------------------
 
 if(TARGET SDL2::SDL2)
-    target_link_libraries(game PRIVATE SDL2::SDL2)
+    target_link_libraries(windgame PRIVATE SDL2::SDL2)
 else()
-    target_include_directories(game PRIVATE ${SDL2_INCLUDE_DIRS})
-    target_link_libraries(game PRIVATE ${SDL2_LIBRARIES})
+    target_include_directories(windgame PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(windgame PRIVATE ${SDL2_LIBRARIES})
 endif()
 
 if(TARGET SDL2_mixer::SDL2_mixer)
-    target_link_libraries(game PRIVATE SDL2_mixer::SDL2_mixer)
+    target_link_libraries(windgame PRIVATE SDL2_mixer::SDL2_mixer)
 elseif(SDL2_MIXER_FOUND)
-    target_include_directories(game PRIVATE ${SDL2_MIXER_INCLUDE_DIRS})
-    target_link_libraries(game PRIVATE ${SDL2_MIXER_LIBRARIES})
+    target_include_directories(windgame PRIVATE ${SDL2_MIXER_INCLUDE_DIRS})
+    target_link_libraries(windgame PRIVATE ${SDL2_MIXER_LIBRARIES})
 endif()
 
 #---------------------------------------------------------------------------
 # Build options
 #---------------------------------------------------------------------------
 
-target_compile_definitions(game PRIVATE
+target_compile_definitions(windgame PRIVATE
     $<$<CONFIG:Debug>:DEBUG>
     # Silence MSVC warnings about fopen/sprintf — we need portable C99
     $<$<C_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
 )
 
 if(MSVC)
-    target_compile_options(game PRIVATE /W4)
+    target_compile_options(windgame PRIVATE /W4)
 else()
-    target_compile_options(game PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(windgame PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # Use console subsystem so our main() is the real entry point.
 # SDL2main provides its own main() which conflicts with ours,
 # so we deliberately do NOT link SDL2main.
 if(WIN32)
-    set_target_properties(game PROPERTIES WIN32_EXECUTABLE FALSE)
+    set_target_properties(windgame PROPERTIES WIN32_EXECUTABLE FALSE)
 endif()
 
 #---------------------------------------------------------------------------
@@ -120,10 +120,10 @@ endif()
 #---------------------------------------------------------------------------
 
 if(WIN32 AND TARGET SDL2::SDL2)
-    add_custom_command(TARGET game POST_BUILD
+    add_custom_command(TARGET windgame POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:SDL2::SDL2>
-            $<TARGET_FILE_DIR:game>
+            $<TARGET_FILE_DIR:windgame>
         COMMENT "Copying SDL2.dll"
     )
 endif()

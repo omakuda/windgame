@@ -22,7 +22,7 @@ PRAGMA     = -pragma-include:zpragma.inc
 OPTFLAGS   = -SO3 -vn
 
 # Output
-OUTNAME    = game
+OUTNAME    = windgame
 OUTFILE    = $(OUTNAME).nex
 
 # Source files
