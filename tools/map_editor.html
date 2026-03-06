@@ -2,638 +2,1549 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>HAL Engine Map Editor</title>
+<title>WindGame Project Editor v5</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#1a1a2e; color:#e0e0e0; font-family:'Segoe UI',monospace; display:flex; height:100vh; overflow:hidden; }
-#sidebar { width:260px; background:#16213e; padding:10px; overflow-y:auto; flex-shrink:0; border-right:2px solid #0f3460; }
-#sidebar h2 { font-size:14px; color:#e94560; margin:8px 0 4px; }
-#sidebar label { font-size:12px; display:block; margin:2px 0; }
-#sidebar select, #sidebar input, #sidebar button {
-  font-size:12px; padding:3px 6px; margin:2px 0; width:100%;
-  background:#0f3460; color:#e0e0e0; border:1px solid #533483; border-radius:3px;
+:root {
+  --bg: #0a0a12; --panel: #11111d; --panel2: #181828; --border: #2a2a44;
+  --accent: #5b8aff; --accent2: #ff5b7a; --text: #d0d0e0; --dim: #666680;
+  --green: #4ae08a; --yellow: #f0c040; --orange: #e88040;
 }
-#sidebar button { cursor:pointer; background:#533483; text-align:center; padding:6px; }
-#sidebar button:hover { background:#e94560; }
-.tile-palette { display:flex; flex-wrap:wrap; gap:2px; margin:4px 0; }
-.tile-swatch { width:28px; height:28px; border:2px solid transparent; cursor:pointer; image-rendering:pixelated; }
-.tile-swatch.selected { border-color:#e94560; }
-.tile-swatch canvas { width:100%; height:100%; image-rendering:pixelated; }
-#main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-#toolbar { background:#16213e; padding:6px 10px; display:flex; gap:8px; align-items:center; font-size:12px; border-bottom:2px solid #0f3460; }
-#toolbar span { color:#999; }
-#canvas-wrap { flex:1; overflow:auto; position:relative; background:#111; }
+.zone-colors { display:flex; gap:1px; flex-wrap:wrap; }
+.zone-swatch { width:20px; height:20px; display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:bold; cursor:pointer; border:2px solid transparent; border-radius:2px; }
+.zone-swatch.active { border-color:#fff; }
+.layer-toggle { display:flex; gap:2px; margin:0 8px; flex-wrap:wrap; }
+.layer-btn { padding:3px 8px; font-size:11px; cursor:pointer; background:var(--panel2);
+  color:var(--text); border:1px solid var(--border); border-radius:3px; white-space:nowrap; }
+.layer-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+#zone-config { padding:8px; border-top:1px solid var(--border); max-height:320px; overflow-y:auto; font-size:10px; }
+#zone-config h3 { font-size:11px; color:var(--accent); margin-bottom:4px; }
+#zone-config label { color:var(--dim); }
+#zone-config input, #zone-config select { background:var(--bg); color:var(--text); border:1px solid var(--border);
+  border-radius:2px; padding:2px 4px; font-size:10px; font-family:inherit; }
+.zone-field { margin:2px 0; }
+body { background:var(--bg); color:var(--text); font-family:'JetBrains Mono','Consolas',monospace; display:flex; height:100vh; overflow:hidden; font-size:12px; }
+#sidebar { width:280px; background:var(--panel); border-right:2px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
+#sidebar-top { padding:10px; border-bottom:1px solid var(--border); }
+#sidebar-top h1 { font-size:13px; color:var(--accent); letter-spacing:1px; margin-bottom:8px; }
+.sb-btn { display:inline-block; padding:4px 10px; margin:2px; font-size:11px; cursor:pointer;
+  background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:3px; }
+.sb-btn:hover { background:var(--accent); color:#fff; border-color:var(--accent); }
+#map-list { flex:1; overflow-y:auto; padding:6px; }
+.map-item { padding:6px 8px; margin:2px 0; border-radius:3px; cursor:pointer; font-size:11px;
+  border:1px solid transparent; display:flex; justify-content:space-between; align-items:center; }
+.map-item:hover { background:var(--panel2); }
+.map-item.active { background:var(--panel2); border-color:var(--accent); }
+.map-item .role-tag { font-size:9px; padding:1px 5px; border-radius:8px; background:var(--accent); color:#fff; margin-left:4px; }
+.map-item .del-btn { color:var(--dim); cursor:pointer; font-size:14px; padding:0 4px; }
+.map-item .del-btn:hover { color:var(--accent2); }
+#manifest-panel { border-top:1px solid var(--border); padding:8px; max-height:50vh; overflow-y:auto; }
+#manifest-panel h2 { font-size:11px; color:var(--yellow); margin-bottom:6px; cursor:pointer; }
+.manifest-row { display:flex; align-items:center; gap:4px; margin:3px 0; font-size:10px; }
+.manifest-row label { width:110px; flex-shrink:0; color:var(--dim); text-align:right; padding-right:4px; }
+.manifest-row select { flex:1; font-size:10px; padding:2px 4px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:2px; }
+#center { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+#toolbar { background:var(--panel); padding:6px 12px; display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+#toolbar .lbl { color:var(--dim); }
+#toolbar input, #toolbar select { font-size:11px; padding:2px 6px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:2px; width:60px; }
+#toolbar input[type="text"] { width:140px; }
+#toolbar button { font-size:11px; padding:3px 8px; cursor:pointer; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:2px; }
+#toolbar button:hover { background:var(--accent); color:#fff; }
+#canvas-wrap { flex:1; overflow:auto; position:relative; background:#050510; }
 #mapCanvas { image-rendering:pixelated; cursor:crosshair; }
-.room-tab { display:inline-block; padding:4px 10px; margin:1px; cursor:pointer; background:#0f3460; border:1px solid #533483; border-radius:3px; font-size:11px; }
-.room-tab.active { background:#e94560; color:#fff; }
-#room-tabs { margin:4px 0; }
-.transition-row { display:flex; align-items:center; gap:4px; font-size:11px; margin:2px 0; }
-.transition-row select { width:auto; flex:1; }
-#help-text { font-size:10px; color:#777; margin-top:8px; line-height:1.4; }
+#right { width:260px; background:var(--panel); border-left:2px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; overflow-y:hidden; padding:0; }
+#right h3 { font-size:11px; color:var(--accent); margin:8px 8px 4px; }
+#tile-palette-wrap { flex:1; overflow-y:auto; padding:4px 8px; min-height:0; }
+.tile-list-item { display:flex; align-items:center; gap:8px; padding:4px 6px; cursor:pointer;
+  border:2px solid transparent; border-radius:3px; margin:1px 0; font-size:11px; }
+.tile-list-item:hover { background:var(--panel2); }
+.tile-list-item.selected { border-color:var(--accent2); background:var(--panel2); }
+.tile-list-item canvas { width:24px; height:24px; image-rendering:pixelated; flex-shrink:0; }
+.tile-list-item .tile-name { color:var(--text); flex:1; }
+.tile-list-item .tile-id { color:var(--dim); font-size:9px; width:20px; text-align:right; flex-shrink:0; }
+#coll-palette-wrap { flex:1; overflow-y:auto; padding:4px 8px; min-height:0; }
+.coll-list-item { display:flex; align-items:center; gap:8px; padding:4px 6px; cursor:pointer;
+  border:2px solid transparent; border-radius:3px; margin:1px 0; font-size:11px; }
+.coll-list-item:hover { background:var(--panel2); }
+.coll-list-item.selected { border-color:var(--accent2); background:var(--panel2); }
+.coll-swatch { width:24px; height:24px; border-radius:2px; flex-shrink:0; display:flex;
+  align-items:center; justify-content:center; font-size:10px; font-weight:bold; }
+.coll-list-item .coll-name { color:var(--text); flex:1; }
+/* NPC panel */
+#npc-panel { padding:0 8px; overflow-y:auto; }
+.npc-type-item { display:flex; align-items:center; gap:8px; padding:5px 6px; cursor:pointer;
+  border:2px solid transparent; border-radius:3px; margin:2px 0; font-size:11px; }
+.npc-type-item:hover { background:var(--panel2); }
+.npc-type-item.active { border-color:var(--green); background:#112211; }
+.npc-type-item canvas { image-rendering:pixelated; flex-shrink:0; }
+.npc-type-item .npc-name { color:var(--text); flex:1; }
+.npc-placed-list { margin-top:6px; border-top:1px solid var(--border); padding-top:4px; }
+.npc-placed { display:flex; align-items:center; gap:4px; font-size:10px; margin:2px 0; padding:2px 4px; border-radius:2px; }
+.npc-placed:hover { background:var(--panel2); }
+.npc-placed .npc-del { color:var(--dim); cursor:pointer; margin-left:auto; }
+.npc-placed .npc-del:hover { color:var(--accent2); }
+#room-tabs-bar { display:none; padding:4px 12px; background:var(--panel); border-bottom:1px solid var(--border); }
+#room-tabs-bar .room-tab { padding:3px 8px; font-size:10px; cursor:pointer; background:var(--panel2); border:1px solid var(--border); border-radius:2px; display:inline-block; margin:1px; }
+#room-tabs-bar .room-tab.active { background:var(--accent); color:#fff; }
+#info-bar { background:var(--panel); padding:4px 12px; font-size:10px; color:var(--dim); border-top:1px solid var(--border); display:flex; gap:16px; }
+input[type="file"] { display:none; }
+/* Dungeon view overlay modal */
+#dg-overlay { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.65); z-index:1000; }
+#dg-modal { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:var(--panel); border:2px solid var(--accent);
+  border-radius:8px; min-width:700px; max-width:90vw; max-height:90vh; overflow-y:auto; padding:0; box-shadow:0 8px 32px rgba(0,0,0,.6); }
+#dg-modal .dg-title { font-size:14px; font-weight:bold; color:var(--accent); padding:12px 16px; border-bottom:1px solid var(--border); }
+#dg-modal .dg-body { padding:16px; }
+#dg-modal .dg-footer { padding:12px 16px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
+#dg-modal .dg-btn { padding:6px 16px; font-size:12px; cursor:pointer; border-radius:4px; border:1px solid var(--border);
+  background:var(--panel2); color:var(--text); font-family:inherit; }
+#dg-modal .dg-btn:hover { background:var(--accent); color:#fff; }
+#dg-modal .dg-btn-ok { background:var(--accent); color:#fff; }
+#dg-modal .dg-btn-ok:hover { background:#7aa0ff; }
+.dg-maps-row { display:flex; gap:16px; align-items:flex-start; margin-bottom:12px; }
+.dg-map-col { flex:1; min-width:0; }
+.dg-map-col h4 { font-size:11px; color:var(--yellow); margin-bottom:4px; }
+.dg-map-col canvas { border:1px solid var(--border); image-rendering:pixelated; max-width:100%; }
+.dg-map-col select { width:100%; margin-top:4px; font-size:11px; padding:3px 6px; background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:3px; font-family:inherit; }
+.dg-bindings { margin-top:8px; }
+.dg-bindings h4 { font-size:11px; color:var(--green); margin-bottom:4px; }
+.dg-binding-row { display:flex; align-items:center; gap:8px; font-size:11px; padding:3px 6px; background:var(--bg); border-radius:3px; margin:2px 0; }
+.dg-binding-row .dg-del { color:var(--dim); cursor:pointer; margin-left:auto; }
+.dg-binding-row .dg-del:hover { color:var(--accent2); }
+.dg-arrow { color:var(--accent); }
+/* Return to dungeon view button */
+#btn-dg-return { display:none; padding:4px 10px; font-size:11px; cursor:pointer; background:var(--accent2); color:#fff;
+  border:1px solid var(--accent2); border-radius:3px; margin-left:8px; }
+#btn-dg-return:hover { background:#ff7090; }
+#ctx-menu { display:none; position:fixed; background:var(--panel); border:1px solid var(--border);
+  border-radius:4px; z-index:999; min-width:170px; padding:4px 0; box-shadow:0 4px 12px rgba(0,0,0,.5); }
+#ctx-menu .ctx-item { padding:5px 14px; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:6px; }
+#ctx-menu .ctx-item:hover { background:var(--accent); color:#fff; }
+#ctx-menu .ctx-item.disabled { color:var(--dim); cursor:default; }
+#ctx-menu .ctx-item.disabled:hover { background:transparent; color:var(--dim); }
+#ctx-menu .ctx-sep { height:1px; background:var(--border); margin:3px 0; }
+#ctx-menu .ctx-sub { position:relative; }
+#ctx-menu .ctx-sub > .ctx-item::after { content:'▸'; margin-left:auto; }
+#ctx-menu .ctx-sub .ctx-submenu { display:none; position:absolute; left:100%; top:-4px; background:var(--panel);
+  border:1px solid var(--border); border-radius:4px; min-width:150px; padding:4px 0; box-shadow:0 4px 12px rgba(0,0,0,.5); }
+#ctx-menu .ctx-sub:hover .ctx-submenu { display:block; }
+.ctx-cswatch { display:inline-block; width:12px; height:12px; border-radius:2px; vertical-align:middle; }
+/* tool selector */
+.tool-toggle { display:flex; gap:2px; margin:0 8px; }
+.tool-btn { padding:3px 8px; font-size:11px; cursor:pointer; background:var(--panel2);
+  color:var(--text); border:1px solid var(--border); border-radius:3px; }
+.tool-btn.active { background:var(--green); color:#fff; border-color:var(--green); }
+/* spawn group styles */
+.grp-row { display:flex; gap:4px; align-items:center; margin:2px 0; padding:3px; background:var(--bg); border-radius:3px; }
+.grp-row .grp-name { font-weight:bold; color:var(--accent); width:70px; font-size:10px; }
+.grp-row input { width:52px; font-size:10px; }
+.grp-maps { font-size:9px; color:var(--dim); margin:1px 0 3px 74px; word-break:break-all; }
+.grp-maps span { display:inline-block; background:var(--panel2); padding:1px 4px; border-radius:2px; margin:1px; cursor:pointer; }
+.grp-maps span:hover { background:var(--accent2); color:#fff; }
+.grp-add-btn { font-size:10px; padding:1px 6px; cursor:pointer; background:var(--panel2); color:var(--green); border:1px solid var(--border); border-radius:2px; }
+.grp-add-btn:hover { background:var(--green); color:#000; }
+/* env palette */
+.env-list-item { display:flex; align-items:center; gap:8px; padding:4px 6px; cursor:pointer;
+  border:2px solid transparent; border-radius:3px; margin:1px 0; font-size:11px; }
+.env-list-item:hover { background:var(--panel2); }
+.env-list-item.selected { border-color:var(--orange); background:var(--panel2); }
+.env-swatch { width:24px; height:24px; border-radius:2px; flex-shrink:0; display:flex;
+  align-items:center; justify-content:center; font-size:9px; font-weight:bold; }
+.env-list-item .env-name { color:var(--text); flex:1; }
 </style>
 </head>
 <body>
-
 <div id="sidebar">
-  <h2>MAP TYPE</h2>
-  <select id="mapType" onchange="switchMapType()">
-    <option value="overworld">Overworld</option>
-    <option value="field_combat">Field — Combat</option>
-    <option value="field_discovery">Field — Discovery</option>
-    <option value="town">Town / Safe Zone</option>
-    <option value="dungeon_fixed">Dungeon (Type 1 — Fixed)</option>
-    <option value="dungeon_random">Dungeon (Type 2 — Random)</option>
-  </select>
-
-  <h2>MAP NAME</h2>
-  <input id="mapName" type="text" placeholder="e.g. plains_overworld" value="untitled" oninput="onMapNameChange()">
-  <div style="font-size:10px;color:#777;margin:2px 0;">Used as C identifier in export. Letters, numbers, underscores only.</div>
-
-  <h2>MAP SIZE</h2>
-  <label>W: <input id="mapW" type="number" min="4" max="128" value="40" style="width:60px"></label>
-  <label>H: <input id="mapH" type="number" min="4" max="64" value="30" style="width:60px"></label>
-  <button onclick="resizeMap()">Resize / New</button>
-
-  <h2>TILE PALETTE</h2>
-  <div class="tile-palette" id="palette"></div>
-  <div id="tileInfo" style="font-size:11px;color:#aaa;margin:2px 0;">Tile 0: empty</div>
-
-  <div id="dungeon-panel" style="display:none;">
-    <h2>DUNGEON ROOMS</h2>
-    <div id="room-tabs"></div>
-    <label style="margin:4px 0;">Room name: <input id="roomName" type="text" value="" style="width:140px" oninput="onRoomNameChange()"></label>
-    <button onclick="addRoom()">+ Add Room</button>
-    <button onclick="removeRoom()">- Remove Current</button>
-
-    <div id="fixed-transitions" style="display:none;">
-      <h2>TRANSITIONS (Fixed)</h2>
-      <div id="transition-list"></div>
-      <p style="font-size:10px;color:#777;">Room order is sequential: left transition = previous, right = next.</p>
-    </div>
+  <div id="sidebar-top">
+    <h1>⚙ WINDGAME PROJECT</h1>
+    <span class="sb-btn" onclick="newProject()">New</span>
+    <span class="sb-btn" onclick="openProject()">Open</span>
+    <span class="sb-btn" onclick="doSave()">Save</span>
+    <span class="sb-btn" onclick="doSaveAs()">Save As</span>
+    <span class="sb-btn" onclick="exportC()">Export C</span>
+    <span class="sb-btn" onclick="setDefaultDir()">Set Dir</span>
+    <br>
+    <span class="sb-btn" onclick="addMap()">+ Map</span>
+    <span class="sb-btn" onclick="addDungeon()">+ Dungeon</span>
+    <input type="file" id="fileInput" accept=".wgp,.json" onchange="handleOpen(event)">
   </div>
-
-  <h2>FILE</h2>
-  <button onclick="saveProject()">💾 Save Project (JSON)</button>
-  <button onclick="loadProject()">📂 Load Project (JSON)</button>
-  <button onclick="exportC()">⚡ Export C Headers</button>
-  <input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleLoad(event)">
-
-  <div id="help-text">
-    <b>Controls:</b><br>
-    Click or drag to paint tiles.<br>
-    Arrow keys move cursor, Space paints.<br>
-    1-0 keys select tiles 0-9.<br>
-    Right-click to pick tile under cursor.<br>
-    Scroll wheel zooms in/out.
+  <div id="map-list"></div>
+  <div id="manifest-panel">
+    <h2 onclick="toggleManifest()">▼ ROLE ASSIGNMENTS</h2>
+    <div id="manifest-body"></div>
   </div>
 </div>
-
-<div id="main">
+<div id="center">
   <div id="toolbar">
-    <span>Pos:</span> <span id="posLabel">0, 0</span>
-    <span>|</span>
-    <span>Tile:</span> <span id="curTileLabel">0</span>
-    <span>|</span>
-    <span>Zoom:</span> <span id="zoomLabel">2x</span>
-    <span>|</span>
-    <span id="mapLabel">Overworld 40×30</span>
+    <span class="lbl">Name:</span>
+    <input id="tbName" type="text" oninput="onNameChange()">
+    <span class="lbl">W:</span><input id="tbW" type="number" min="4" max="128" onchange="onResize()">
+    <span class="lbl">H:</span><input id="tbH" type="number" min="4" max="64" onchange="onResize()">
+    <button onclick="fillBorder()">Border</button>
+    <button onclick="clearMap()">Clear</button>
+    <div class="layer-toggle">
+      <span class="layer-btn active" id="layTiles" onclick="setLayer('tiles')">Tiles</span>
+      <span class="layer-btn" id="layCollision" onclick="setLayer('collision')">Collision</span>
+      <span class="layer-btn" id="laySpawn" onclick="setLayer('spawn')">Spawn</span>
+      <span class="layer-btn" id="layEnv" onclick="setLayer('env')">Environ</span>
+    </div>
+    <div class="tool-toggle">
+      <span class="tool-btn active" id="toolPaint" onclick="setTool('paint')">✏ Paint</span>
+      <span class="tool-btn" id="toolSelect" onclick="setTool('select')">⬚ Select</span>
+      <span class="tool-btn" id="toolNpc" onclick="setTool('npc')">👤 NPC</span>
+    </div>
+    <select id="npcSelect" style="display:none;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onNpcDropdown()"></select>
+    <button id="btn-dg-return" onclick="enterDungeonView()">⬅ Dungeon View</button>
   </div>
-  <div id="canvas-wrap">
-    <canvas id="mapCanvas"></canvas>
+  <div id="room-tabs-bar"></div>
+  <div id="canvas-wrap"><canvas id="mapCanvas"></canvas></div>
+  <div id="info-bar">
+    <span id="infoCoord">Cursor: 0,0</span>
+    <span id="infoTile">Tile: 0</span>
+    <span id="infoSize">Size: 0×0</span>
+    <span id="infoZoom">Zoom: 2×</span>
+    <span id="infoTool">Tool: Paint</span>
   </div>
 </div>
+<div id="right">
+  <div id="tile-section"><h3>TILE PALETTE</h3><div id="tile-palette-wrap"></div></div>
+  <div id="coll-section" style="display:none;"><h3>COLLISION TYPES</h3><div id="coll-palette-wrap"></div></div>
+  <div id="npc-panel" style="display:none;">
+    <h3>NPC TYPES</h3>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Click type, then click map to place. Esc to deselect.</div>
+    <div id="npc-type-list"></div>
+    <h3 style="margin-top:8px">PLACED NPCs</h3>
+    <div id="npc-placed-list" class="npc-placed-list"></div>
+  </div>
+  <div id="spawn-panel" style="display:none;"><h3>SPAWN ZONES</h3>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px;padding:0 8px">Paint zone IDs (1-8). 0=none.</div>
+    <div id="zone-palette" class="zone-colors" style="padding:0 8px"></div>
+    <div id="zone-config"></div></div>
+  <div id="env-section" style="display:none;"><h3>ENVIRONMENT</h3>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px;padding:0 8px">Paint environment types. 0=default.</div>
+    <div id="env-palette-wrap" style="padding:4px 8px"></div>
+    <h3 style="margin-top:8px">PREVIEW ENV</h3>
+    <div style="padding:0 8px;font-size:10px;color:var(--dim)">Select environment to preview tile rendering:</div>
+    <select id="envPreviewSelect" style="margin:4px 8px;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onEnvPreview()"></select>
+    <div id="env-tile-preview" style="padding:4px 8px"></div>
+  </div>
+</div>
+<div id="ctx-menu"></div>
+<div id="dg-overlay"><div id="dg-modal"></div></div>
 
 <script>
-// ======================================================================
-// RRRGGGBB → CSS color
-// ======================================================================
-function rrrgggbb(v){
-  const r=((v>>5)&7)*255/7|0, g=((v>>2)&7)*255/7|0, b=(v&3)*255/3|0;
-  return `rgb(${r},${g},${b})`;
+const TILE_SIZE=16;
+
+// ======== TILE DEFINITIONS ========
+const TILE_NAMES=['empty','solid','rock','breakable','platform','ladder','damage','ice',
+  'exit','transition','water','town','hidden','forest','brick','bark',
+  'stone_wall','wood_plank','grass','sand','roof','cobblestone','dirt','window'];
+const NUM_TILES=TILE_NAMES.length;
+
+const COLL_TYPES=[
+  {id:0,name:'none',      flag:0x00,color:'#111122',short:'·'},
+  {id:1,name:'solid',     flag:0x01,color:'#6D6DB6',short:'S'},
+  {id:2,name:'platform',  flag:0x02,color:'#64A864',short:'P'},
+  {id:3,name:'ladder',    flag:0x04,color:'#A4E8A4',short:'L'},
+  {id:4,name:'damage',    flag:0x08,color:'#FF4444',short:'D'},
+  {id:5,name:'water',     flag:0x11,color:'#1344AA',short:'W'},
+  {id:6,name:'exit',      flag:0x20,color:'#035BFF',short:'E'},
+  {id:7,name:'transition',flag:0x40,color:'#9F5FFF',short:'T'},
+  {id:8,name:'ice',       flag:0x80,color:'#AADDEE',short:'I'},
+];
+const NUM_COLL=COLL_TYPES.length;
+const TILE_TO_COLL=[0,1,1,1,2,3,4,8,6,7,5,0,0,0,1,1,1,1,0,0,1,0,0,1];
+
+// ======== ENVIRONMENT SYSTEM ========
+// Environment types for world map overlay -> determines action map tileset
+const ENV_TYPES=[
+  {id:0, name:'default',   short:'·', color:'#333344'},
+  {id:1, name:'grass',     short:'G', color:'#44AA44'},
+  {id:2, name:'forest',    short:'F', color:'#227722'},
+  {id:3, name:'mountain',  short:'M', color:'#998877'},
+  {id:4, name:'desert',    short:'D', color:'#DDBB55'},
+  {id:5, name:'cave',      short:'C', color:'#555566'},
+  {id:6, name:'graveyard', short:'Y', color:'#665577'},
+  {id:7, name:'castle',    short:'K', color:'#8888AA'},
+  {id:8, name:'tundra',    short:'T', color:'#AADDEE'},
+];
+const NUM_ENV=ENV_TYPES.length;
+
+// Which tiles are "environment-sensitive" (structural tiles that change per env)
+// These tile IDs get palette-shifted: solid(1), rock(2), breakable(3), platform(4),
+// brick(14), stone_wall(16), cobblestone(21), dirt(22)
+const ENV_SENSITIVE_TILES=[1,2,3,4,14,16,21,22];
+
+// Palette remap per environment: ENV_PALETTE[env_id][tile_id] = [c0, c1] or null
+// null means use default. c0,c1 are the two 332 color values for checker pattern.
+// env 0 (default) = no remap (uses base TC colors)
+const ENV_PALETTE = {
+  // grass: greens and earth tones
+  1: {1:[0x24,0x28], 2:[0x28,0x2C], 3:[0x64,0x28], 4:[0x24,0x28], 14:[0x24,0x64], 16:[0x28,0x48], 21:[0x24,0x28], 22:[0x24,0x44]},
+  // forest: deep greens, mossy
+  2: {1:[0x20,0x24], 2:[0x24,0x44], 3:[0x60,0x24], 4:[0x20,0x24], 14:[0x20,0x60], 16:[0x20,0x44], 21:[0x20,0x24], 22:[0x20,0x40]},
+  // mountain: grays, stone
+  3: {1:[0x92,0xB6], 2:[0xB6,0xDB], 3:[0xD2,0xB6], 4:[0x92,0xB6], 14:[0x92,0xD2], 16:[0x6D,0x92], 21:[0x92,0xB6], 22:[0x6D,0x49]},
+  // desert: sandy yellows/oranges
+  4: {1:[0xE9,0xED], 2:[0xED,0xF1], 3:[0xF0,0xED], 4:[0xE9,0xED], 14:[0xE8,0xC8], 16:[0xE9,0xC9], 21:[0xE9,0xC8], 22:[0xC8,0xA4]},
+  // cave: dark blues/purples
+  5: {1:[0x49,0x6D], 2:[0x6D,0x92], 3:[0x8D,0x6D], 4:[0x49,0x6D], 14:[0x49,0x8D], 16:[0x25,0x49], 21:[0x49,0x6D], 22:[0x24,0x48]},
+  // graveyard: muted purple/gray
+  6: {1:[0x6D,0x92], 2:[0x92,0x97], 3:[0xB2,0x92], 4:[0x6D,0x92], 14:[0x52,0x6D], 16:[0x4D,0x6D], 21:[0x6D,0x4D], 22:[0x48,0x24]},
+  // castle: stone gray/blue
+  7: {1:[0x92,0xB6], 2:[0xB6,0xDA], 3:[0xD6,0xB6], 4:[0x92,0xB6], 14:[0x92,0xB6], 16:[0x6D,0x92], 21:[0x6D,0x92], 22:[0x49,0x6D]},
+  // tundra: icy whites/blues
+  8: {1:[0xB6,0xDB], 2:[0xDB,0xFF], 3:[0xFE,0xDB], 4:[0xB6,0xDB], 14:[0xB6,0xFE], 16:[0x92,0xB6], 21:[0x92,0xB6], 22:[0x6D,0x92]},
+};
+
+// ======== TILE RENDERING ========
+// Base color pairs per tile
+const TC=[[0x0C,0x10],[0x6D,0xB6],[0x88,0xCC],[0xC8,0xE9],[0x64,0xA8],[0xA4,0xE8],
+  [0xC0,0xE4],[0xAD,0xED],[0x03,0x17],[0x5F,0x9F],[0x13,0x1B],[0xFC,0xFD],[0x08,0x0C],[0x24,0x28],
+  [0xC0,0xE4],[0x64,0x24],
+  [0x92,0xB6],[0xA4,0x64],[0x28,0x2C],[0xED,0xE9],[0xC0,0x80],[0x92,0x6D],[0x64,0x44],[0x9F,0xBF]];
+
+// tileImg[envId][tileId] = canvas (envId 0=default)
+const tileImgByEnv={};
+const canvas=document.getElementById('mapCanvas'),ctx=canvas.getContext('2d');
+function rgb332(c){return`rgb(${(c>>5&7)*36},${(c>>2&7)*36},${(c&3)*85})`;}
+
+function renderTile(t,c0,c1){
+  const cv=document.createElement('canvas');cv.width=cv.height=TILE_SIZE;const g=cv.getContext('2d');
+  for(let py=0;py<16;py++)for(let px=0;px<16;px++){
+    let c=((px+py)&1)?c1:c0;
+    if(t===1){if(!px||!py)c=c1;else if(px===15||py===15)c=c0>>1;}
+    if(t===4)c=py<=1?c1:py<=3?c0:0x00;
+    if(t===5)c=(px<=2||px>=13)?c0:((px+py)&1)?c1:0x00;
+    if(t===6)c=((px+py)%4===0)?0xFF:c;
+    if(t===8||t===9){if(px<=1||px>=14)c=c1;else if(py<=1)c=c1;else if(py>=14)c=c0;else c=0x00;}
+    if(t===10)c=py<=2?0x1B:(py<=4&&!((px+py)&3))?0x1B:py>10?0x03:c;
+    if(t===11){if(py<=3&&px>=3&&px<=12)c=0xFC;else if(py>3&&py<=12&&(px===3||px===12))c=0xE8;else if(py>=10&&px>=6&&px<=9)c=0x64;else if(py>3&&py<10&&px>3&&px<12)c=0xED;}
+    if(t===12)c=((px+py*3)%7===0)?0x0C:py<4?0x04:0x00;
+    if(t===13){const a=px-7,b=py-4;c=(a*a+b*b<=20)?0x24:(px>=6&&px<=9&&py>=10)?0x64:c;}
+    if(t===14){const row4=py%8;const off=(py<8)?0:4;const col8=(px+off)%8;
+      const isMortarH=(row4===0);const isMortarV=(col8===0);
+      c=isMortarH||isMortarV?0xED:((px+py)&1)?c0:c1;}
+    if(t===15){const grain=(px*3+py*7)%11;c=grain<2?0x24:grain<5?0x48:((px+py)&1)?0x64:0x44;}
+    if(t===16){const row=py%6,col=(px+(py<6?0:3))%8;const isMortar=(row===0)||(col===0);
+      c=isMortar?((c0+c1)>>1)&0xFF:((px*5+py*3)%7<2)?c1:c0;}
+    if(t===17){const plank=py%4;c=(plank===0)?0x24:((px+py*3)%5===0)?0x44:((px+py)&1)?0xA4:0x64;}
+    if(t===18){const tuft=(px*7+py*11)%13;c=tuft<3?0x2C:tuft<5?0x28:((px+py)&1)?0x24:0x28;}
+    if(t===19){const grain=(px*11+py*7)%9;c=grain<2?0xE9:grain<4?0xED:((px+py)&1)?0xED:0xE9;}
+    if(t===20){const row=py%4,off=(py<4||py>=8&&py<12)?0:2;const col=(px+off)%4;
+      c=(row===0)?0x80:(col===0&&row>0)?0x80:((px+py)&1)?c0:((c0+c1)>>1)&0xFF;}
+    if(t===21){const pat=(px*7+py*13)%17;c=pat<4?c0:pat<8?c1:pat<11?((c0+c1)>>1)&0xFF:((px+py)&1)?c0:c1;}
+    if(t===22){const grain=(px*3+py*5)%7;c=grain<2?c0:grain<4?c1:((px+py)&1)?c0:c1;}
+    if(t===23){const isFrameH=(py===0||py===7||py===8||py===15);const isFrameV=(px===0||px===7||px===8||px===15);
+      c=isFrameH||isFrameV?0x6D:((px+py)&1)?0xBF:0x9F;}
+    g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
+  }
+  return cv;
 }
 
-// ======================================================================
-// Tile definitions matching hal_win64.c
-// ======================================================================
-const TILE_SIZE=16, NUM_TILES=10;
-const TILE_NAMES=['empty','solid wall','brick','breakable','platform','ladder','damage','path','exit','transition'];
-const TILE_COLORS =   [0x0C,0x6D,0x88,0xC8,0x64,0xA4,0xC0,0xAD,0x03,0x5F];
-const TILE_COLORS_HI= [0x10,0xB6,0xCC,0xE9,0xA8,0xE8,0xE4,0xED,0x17,0x9F];
-
-// Pre-render 16x16 tile images
-const tileCanvases=[];
 function initTiles(){
+  // Generate default (env=0) tile images
+  tileImgByEnv[0]=[];
   for(let t=0;t<NUM_TILES;t++){
-    const cv=document.createElement('canvas'); cv.width=TILE_SIZE; cv.height=TILE_SIZE;
-    const ctx=cv.getContext('2d');
-    const id=ctx.createImageData(TILE_SIZE,TILE_SIZE);
-    for(let py=0;py<TILE_SIZE;py++) for(let px=0;px<TILE_SIZE;px++){
-      let c0=TILE_COLORS[t], c1=TILE_COLORS_HI[t];
-      let c=((px+py)&1)?c0:c1;
-      if(t>=1&&t<=3&&(px===0||py===0||px===TILE_SIZE-1||py===TILE_SIZE-1)) c=c0&0x6D;
-      if(t===4&&py>2) c=0;
-      if(t===5){if((px>=3&&px<=4)||(px>=11&&px<=12)) c=c1; else if(py%4===0) c=c0; else c=0;}
-      if(t===6&&py<8){const sx=px%8;if(sx<py||sx>(7-py)) c=0;}
-      if(t===8){if(px===0||px===TILE_SIZE-1||py===0||py===TILE_SIZE-1) c=c1;
-        else if((px+py)%4===0) c=c1; else c=c0;}
-      if(t===9){if(px<=1||px>=TILE_SIZE-2) c=c1; else if(py<=1) c=c1;
-        else if(py>=TILE_SIZE-2) c=c0; else c=0;}
-      const i=(py*TILE_SIZE+px)*4;
-      const r=((c>>5)&7)*255/7|0, g=((c>>2)&7)*255/7|0, b=(c&3)*255/3|0;
-      id.data[i]=r; id.data[i+1]=g; id.data[i+2]=b; id.data[i+3]=(c===0&&t!==0)?255:255;
-    }
-    ctx.putImageData(id,0,0);
-    tileCanvases.push(cv);
+    tileImgByEnv[0].push(renderTile(t,TC[t][0],TC[t][1]));
   }
-}
-
-// ======================================================================
-// State
-// ======================================================================
-let mapType='overworld';
-let mapName='untitled';
-let mapW=40, mapH=30;
-let tiles=[]; // flat array mapW*mapH
-let selectedTile=0;
-let zoom=2;
-let cursorX=0, cursorY=0;
-let painting=false;
-
-// Dungeon state
-let rooms=[]; // [{w,h,tiles,name}]
-let currentRoom=0;
-let transitions=[]; // for fixed: [{from,to}] — auto-sequential, but stored for display
-
-// Sanitize a string into a valid C identifier
-function sanitizeId(s){ return s.replace(/[^a-zA-Z0-9_]/g,'_').replace(/^[0-9]/,'_$&').toLowerCase(); }
-function onMapNameChange(){ mapName=document.getElementById('mapName').value||'untitled'; updateLabels(); }
-function onRoomNameChange(){
-  if(rooms.length===0) return;
-  rooms[currentRoom].name=document.getElementById('roomName').value||`room_${currentRoom+1}`;
-  buildRoomTabs(); buildTransitions();
-}
-
-// ======================================================================
-// Palette UI
-// ======================================================================
-function buildPalette(){
-  const pal=document.getElementById('palette'); pal.innerHTML='';
-  for(let t=0;t<NUM_TILES;t++){
-    const div=document.createElement('div');
-    div.className='tile-swatch'+(t===selectedTile?' selected':'');
-    div.title=`${t}: ${TILE_NAMES[t]}`;
-    div.onclick=()=>selectTile(t);
-    const cv=document.createElement('canvas'); cv.width=TILE_SIZE; cv.height=TILE_SIZE;
-    cv.getContext('2d').drawImage(tileCanvases[t],0,0);
-    div.appendChild(cv);
-    pal.appendChild(div);
-  }
-}
-function selectTile(t){
-  selectedTile=t;
-  document.querySelectorAll('.tile-swatch').forEach((s,i)=>s.className='tile-swatch'+(i===t?' selected':''));
-  document.getElementById('tileInfo').textContent=`Tile ${t}: ${TILE_NAMES[t]}`;
-  document.getElementById('curTileLabel').textContent=t;
-}
-
-// ======================================================================
-// Map init
-// ======================================================================
-function initMap(w,h,fill){
-  mapW=w; mapH=h;
-  tiles=new Array(w*h);
-  for(let i=0;i<w*h;i++) tiles[i]=(fill!==undefined)?fill:0;
-}
-
-function getDefaults(type){
-  switch(type){
-    case 'overworld': return {w:40,h:30};
-    case 'field_combat': return {w:40,h:12};
-    case 'field_discovery': return {w:30,h:12};
-    case 'town': return {w:50,h:12};
-    case 'dungeon_fixed': return {w:20,h:12};
-    case 'dungeon_random': return {w:20,h:12};
-  }
-  return {w:20,h:12};
-}
-
-function applyBorders(t,w,h){
-  // field/town: exit (8) on L/R, solid (1) on bottom 2 rows
-  if(t==='field_combat'||t==='field_discovery'||t==='town'){
-    for(let y=0;y<h;y++){t[y*w]=8; t[y*w+w-1]=8;}  // won't work, t is string
-  }
-}
-
-function newMapForType(type,w,h){
-  const arr=new Array(w*h).fill(0);
-  if(type==='field_combat'||type==='field_discovery'||type==='town'){
-    // exit borders L/R
-    for(let y=0;y<h;y++){arr[y*w]=8; arr[y*w+w-1]=8;}
-    // solid floor bottom 2 rows
-    for(let y=h-2;y<h;y++) for(let x=1;x<w-1;x++) arr[y*w+x]=1;
-  }
-  if(type==='overworld'){
-    // wall border
-    for(let x=0;x<w;x++){arr[x]=1; arr[(h-1)*w+x]=1;}
-    for(let y=0;y<h;y++){arr[y*w]=1; arr[y*w+w-1]=1;}
-  }
-  if(type==='dungeon_fixed'||type==='dungeon_random'){
-    // solid border, transitions on L/R mid-height
-    for(let x=0;x<w;x++){arr[x]=1; arr[(h-1)*w+x]=1; if(h>2) arr[(h-2)*w+x]=1;}
-    for(let y=0;y<h;y++){arr[y*w]=1; arr[y*w+w-1]=1;}
-    // Place transition tiles on left and right walls at mid height
-    const midY=Math.floor(h/2);
-    for(let dy=-1;dy<=1;dy++){
-      const ty=midY+dy;
-      if(ty>0&&ty<h-2){arr[ty*w]=9; arr[ty*w+w-1]=9;}
+  // Generate environment-specific tile images
+  for(let e=1;e<NUM_ENV;e++){
+    tileImgByEnv[e]=[];
+    const pal=ENV_PALETTE[e]||{};
+    for(let t=0;t<NUM_TILES;t++){
+      if(pal[t]){
+        tileImgByEnv[e].push(renderTile(t,pal[t][0],pal[t][1]));
+      } else {
+        tileImgByEnv[e].push(tileImgByEnv[0][t]); // share default
+      }
     }
   }
-  return arr;
 }
 
-function switchMapType(){
-  const type=document.getElementById('mapType').value;
-  mapType=type;
-  const d=getDefaults(type);
-  document.getElementById('mapW').value=d.w;
-  document.getElementById('mapH').value=d.h;
-
-  // Set a sensible default name
-  const defaultNames={overworld:'overworld_main',field_combat:'field_combat',field_discovery:'field_discovery',
-    town:'town_oasis',dungeon_fixed:'dungeon_fixed',dungeon_random:'dungeon_random'};
-  mapName=defaultNames[type]||'untitled';
-  document.getElementById('mapName').value=mapName;
-
-  const isDungeon=type==='dungeon_fixed'||type==='dungeon_random';
-  document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
-  document.getElementById('fixed-transitions').style.display=type==='dungeon_fixed'?'block':'none';
-
-  if(isDungeon){
-    rooms=[{w:d.w,h:d.h,tiles:newMapForType(type,d.w,d.h),name:'entrance'}];
-    currentRoom=0;
-    loadRoomIntoEditor(0);
-    buildRoomTabs();
-    buildTransitions();
-  } else {
-    rooms=[];
-    initMap(d.w,d.h,0);
-    tiles=newMapForType(type,d.w,d.h);
-  }
-  cursorX=0; cursorY=0;
-  updateLabels(); redraw();
-}
-
-function resizeMap(){
-  const w=parseInt(document.getElementById('mapW').value)||20;
-  const h=parseInt(document.getElementById('mapH').value)||12;
-  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-  if(isDungeon){
-    rooms[currentRoom].w=w; rooms[currentRoom].h=h;
-    rooms[currentRoom].tiles=newMapForType(mapType,w,h);
-    loadRoomIntoEditor(currentRoom);
-  } else {
-    initMap(w,h,0);
-    tiles=newMapForType(mapType,w,h);
-  }
-  cursorX=0; cursorY=0;
-  updateLabels(); redraw();
-}
-
-// ======================================================================
-// Dungeon room management
-// ======================================================================
-function saveCurrentRoom(){
-  if(rooms.length===0) return;
-  rooms[currentRoom].w=mapW;
-  rooms[currentRoom].h=mapH;
-  rooms[currentRoom].tiles=tiles.slice();
-}
-function loadRoomIntoEditor(idx){
-  if(idx<0||idx>=rooms.length) return;
-  currentRoom=idx;
-  const r=rooms[idx];
-  mapW=r.w; mapH=r.h; tiles=r.tiles.slice();
-  document.getElementById('mapW').value=mapW;
-  document.getElementById('mapH').value=mapH;
-  const rn=document.getElementById('roomName');
-  if(rn) rn.value=r.name;
-  updateLabels(); redraw();
-}
-function addRoom(){
-  saveCurrentRoom();
-  const d=getDefaults(mapType);
-  const w=parseInt(document.getElementById('mapW').value)||d.w;
-  const h=parseInt(document.getElementById('mapH').value)||d.h;
-  rooms.push({w,h,tiles:newMapForType(mapType,w,h),name:`room_${rooms.length+1}`});
-  currentRoom=rooms.length-1;
-  loadRoomIntoEditor(currentRoom);
-  buildRoomTabs(); buildTransitions();
-}
-function removeRoom(){
-  if(rooms.length<=1) return;
-  rooms.splice(currentRoom,1);
-  if(currentRoom>=rooms.length) currentRoom=rooms.length-1;
-  loadRoomIntoEditor(currentRoom);
-  buildRoomTabs(); buildTransitions();
-}
-function buildRoomTabs(){
-  const el=document.getElementById('room-tabs'); el.innerHTML='';
-  rooms.forEach((r,i)=>{
-    const tab=document.createElement('span');
-    tab.className='room-tab'+(i===currentRoom?' active':'');
-    tab.textContent=r.name;
-    tab.onclick=()=>{saveCurrentRoom();loadRoomIntoEditor(i);buildRoomTabs();};
-    el.appendChild(tab);
+// ======== NPC SPRITES (16×32, procedural) ========
+const NPC_TYPES=[
+  {key:'merchant', name:'Merchant', bodyCol:0xE8, headCol:0xFC, accentCol:0xC0, hatCol:0xE9},
+  {key:'healer',   name:'Healer',   bodyCol:0xFF, headCol:0xFC, accentCol:0x1F, hatCol:0xFF},
+  {key:'sage',     name:'Sage',     bodyCol:0x57, headCol:0xFC, accentCol:0x17, hatCol:0x13},
+  {key:'wanderer', name:'Wanderer', bodyCol:0x64, headCol:0xFC, accentCol:0x24, hatCol:0x48},
+];
+const npcImg=[];
+function initNpcSprites(){
+  npcImg.length=0;
+  NPC_TYPES.forEach(npc=>{
+    const cv=document.createElement('canvas');cv.width=16;cv.height=32;const g=cv.getContext('2d');
+    for(let py=0;py<16;py++)for(let px=0;px<16;px++){
+      let c=0x00;
+      if(py>=1&&py<=4&&px>=4&&px<=11) c=npc.hatCol;
+      if(py>=5&&py<=10&&px>=5&&px<=10) c=npc.headCol;
+      if(py===7&&(px===6||px===9)) c=0x00;
+      if(py===11&&px>=6&&px<=9) c=npc.headCol;
+      if(py>=12&&py<=15&&px>=3&&px<=12) c=npc.bodyCol;
+      if(py===13&&px>=4&&px<=11) c=npc.accentCol;
+      g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
+    }
+    for(let py=16;py<32;py++)for(let px=0;px<16;px++){
+      let c=0x00;
+      if(py>=16&&py<=24&&px>=4&&px<=11) c=npc.bodyCol;
+      if(py===21&&px>=4&&px<=11) c=npc.accentCol;
+      if(py>=16&&py<=22&&(px===3||px===12)) c=npc.bodyCol;
+      if(py>=22&&py<=23&&(px===3||px===12)) c=npc.headCol;
+      if(py>=25&&py<=29&&((px>=5&&px<=7)||(px>=8&&px<=10))) c=npc.accentCol;
+      if(py>=30&&py<=31&&((px>=4&&px<=7)||(px>=8&&px<=11))) c=npc.bodyCol;
+      g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
+    }
+    npcImg.push(cv);
   });
 }
-function buildTransitions(){
-  if(mapType!=='dungeon_fixed') return;
-  const el=document.getElementById('transition-list'); el.innerHTML='';
-  for(let i=0;i<rooms.length;i++){
-    const row=document.createElement('div'); row.className='transition-row';
-    const prev=i>0?rooms[i-1].name:'(entrance)';
-    const next=i<rooms.length-1?rooms[i+1].name:'(exit)';
-    row.innerHTML=`<span>${prev}</span> → <b>${rooms[i].name}</b> → <span>${next}</span>`;
-    el.appendChild(row);
-  }
+
+// ======== SPAWN GROUP DEFINITIONS ========
+const SPAWN_GROUP_TYPES=['weak','medium','strong','discovery','safe','dungeon','event'];
+function defaultGroup(name){return{name,maps:[],prob:0};}
+function defaultZoneConfig(){
+  return{name:'',groups:SPAWN_GROUP_TYPES.map(g=>{
+    const prob=g==='weak'?30:g==='medium'?25:g==='strong'?15:g==='discovery'?10:g==='safe'?10:g==='dungeon'?5:5;
+    return defaultGroup(g);
+  })}; // groups is array of {name, maps:[], prob}
+}
+// Migrate old zone config (CSV fields) to new groups format
+function migrateZoneConfig(old){
+  if(old.groups) return old; // already migrated
+  const g=SPAWN_GROUP_TYPES.map(name=>defaultGroup(name));
+  // Migrate CSV fields to groups
+  const parseCsv=(s)=>(s||'').split(',').map(x=>x.trim()).filter(x=>x);
+  g[0].maps=parseCsv(old.enemies_weak); g[0].prob=old.prob_combat||0;
+  g[1].maps=parseCsv(old.enemies_medium); g[1].prob=0; // was lumped into combat
+  g[2].maps=parseCsv(old.enemies_strong); g[2].prob=0;
+  // split old prob_combat among weak/med/strong
+  const pc=old.prob_combat||0;
+  if(g[0].maps.length||g[1].maps.length||g[2].maps.length){
+    g[0].prob=Math.round(pc*0.5);g[1].prob=Math.round(pc*0.3);g[2].prob=pc-g[0].prob-g[1].prob;
+  } else { g[0].prob=pc; }
+  g[3].maps=parseCsv(old.maps_discovery); g[3].prob=old.prob_discovery||0;
+  g[4].maps=[]; g[4].prob=old.prob_safe||0;
+  g[5].maps=[]; g[5].prob=old.prob_dungeon||0;
+  g[6].maps=parseCsv(old.events); g[6].prob=old.prob_event||0;
+  // Also migrate map names from maps_combat/maps_tough into weak/medium/strong
+  const mc=parseCsv(old.maps_combat),mt=parseCsv(old.maps_tough);
+  if(mc.length){ mc.forEach(m=>{if(!g[0].maps.includes(m))g[0].maps.push(m);}); }
+  if(mt.length){ mt.forEach(m=>{if(!g[1].maps.includes(m)&&!g[2].maps.includes(m))g[1].maps.push(m);}); }
+  return{name:old.name||'',groups:g};
 }
 
-// ======================================================================
-// Canvas rendering
-// ======================================================================
-const canvas=document.getElementById('mapCanvas');
-const ctx=canvas.getContext('2d');
+// ======== PROJECT MODEL ========
+const ROLES=[
+  {key:'overworld',label:'Overworld'},{key:'field_combat',label:'Combat Arena'},
+  {key:'field_tough',label:'Tough Arena'},{key:'field_discovery',label:'Discovery'},
+  {key:'safe_lone',label:'Safe: Lone NPC'},{key:'safe_caravan',label:'Safe: Caravan'},
+  {key:'safe_oasis',label:'Safe: Oasis'},{key:'interior',label:'Interior Room'},
+  {key:'dungeon_entry',label:'Dungeon Entry'},{key:'dungeon_rooms',label:'Dungeon Rooms'},
+];
+let proj={version:5,maps:[],manifest:{}};
+let active=-1,selTile=1,selColl=1,zoom=2,painting=false,cx=0,cy=0,curRoom=0;
+let editLayer='tiles',curTool='paint';
+let selZone=1, selEnv=1;
+let selNpcType=-1;
+let sel=null,selDrag=false,selAnchorX=0,selAnchorY=0;
+let clip=null; // {w,h,tiles:[],coll:[]}
+let fileHandle=null, defaultDirHandle=null;
+let previewEnv=0; // env to preview tiles in (0=default)
+const MAX_ZONES=8;
+const ZONE_COLORS=['transparent','#ff4444','#44ff44','#4488ff','#ffff44','#ff44ff','#44ffff','#ff8844','#88ff44'];
+const ZONE_LABELS=['0:none','1:red','2:green','3:blue','4:yellow','5:magenta','6:cyan','7:orange','8:lime'];
 
+function genColl(tiles){return tiles.map(t=>(t>=0&&t<TILE_TO_COLL.length)?TILE_TO_COLL[t]:0);}
+function ensureColl(m){if(!m.collisionLayer||m.collisionLayer.length!==m.w*m.h)m.collisionLayer=genColl(m.tiles);return m;}
+function ensureRoomColl(r){if(!r.collisionLayer||r.collisionLayer.length!==r.w*r.h)r.collisionLayer=genColl(r.tiles);return r;}
+function ensureEnvLayer(m){if(!m.envLayer||m.envLayer.length!==m.w*m.h)m.envLayer=new Array(m.w*m.h).fill(0);return m;}
+function san(s){return(s||'').replace(/[^a-zA-Z0-9_]/g,'_').replace(/^(\d)/,'_$1')||'untitled';}
+
+// ======== TOOL & LAYER ========
+function setTool(t){
+  curTool=t;sel=null;selNpcType=t==='npc'?Math.max(selNpcType,0):-1;
+  document.getElementById('toolPaint').classList.toggle('active',t==='paint');
+  document.getElementById('toolSelect').classList.toggle('active',t==='select');
+  document.getElementById('toolNpc').classList.toggle('active',t==='npc');
+  document.getElementById('npcSelect').style.display=t==='npc'?'inline-block':'none';
+  if(t==='npc') buildNpcDropdown();
+  const showNpc=(t==='npc');
+  document.getElementById('npc-panel').style.display=showNpc?'block':'none';
+  if(t!=='npc'){
+    document.getElementById('tile-section').style.display=editLayer==='tiles'?'':'none';
+    document.getElementById('coll-section').style.display=editLayer==='collision'?'':'none';
+    document.getElementById('env-section').style.display=editLayer==='env'?'':'none';
+  } else {
+    document.getElementById('tile-section').style.display='none';
+    document.getElementById('coll-section').style.display='none';
+    document.getElementById('env-section').style.display='none';
+  }
+  if(showNpc) buildNpcPanel();
+  document.getElementById('infoTool').textContent='Tool: '+{paint:'Paint',select:'Select',npc:'NPC'}[t];
+  canvas.style.cursor=t==='select'?'crosshair':t==='npc'?'none':'crosshair';
+  redraw();
+}
+function setLayer(l){
+  editLayer=l;
+  document.getElementById('layTiles').classList.toggle('active',l==='tiles');
+  document.getElementById('layCollision').classList.toggle('active',l==='collision');
+  document.getElementById('laySpawn').classList.toggle('active',l==='spawn');
+  document.getElementById('layEnv').classList.toggle('active',l==='env');
+  document.getElementById('spawn-panel').style.display=l==='spawn'?'block':'none';
+  document.getElementById('env-section').style.display=l==='env'?'block':'none';
+  if(curTool!=='npc'){
+    document.getElementById('tile-section').style.display=l==='tiles'?'':'none';
+    document.getElementById('coll-section').style.display=l==='collision'?'':'none';
+  }
+  if(l==='spawn') buildZonePalette();
+  if(l==='env') buildEnvPalette();
+  redraw();
+}
+
+// ======== ZONE PALETTE ========
+function buildZonePalette(){
+  const p=document.getElementById('zone-palette');p.innerHTML='';
+  for(let z=0;z<=MAX_ZONES;z++){const d=document.createElement('div');d.className='zone-swatch'+(z===selZone?' active':'');
+    d.style.background=z===0?'#333':ZONE_COLORS[z];d.style.color=z===0||z===4?'#000':'#fff';
+    d.textContent=z;d.title=ZONE_LABELS[z];d.onclick=()=>{selZone=z;buildZonePalette();showZoneConfig(z);};p.appendChild(d);}
+  showZoneConfig(selZone);
+}
+function ensureSpawnLayer(m){if(!m.spawnLayer)m.spawnLayer=new Array(m.w*m.h).fill(0);if(!m.spawnZones)m.spawnZones={};
+  for(let z=1;z<=MAX_ZONES;z++){if(!m.spawnZones[z])m.spawnZones[z]=defaultZoneConfig();
+    else m.spawnZones[z]=migrateZoneConfig(m.spawnZones[z]);}return m;}
+
+function showZoneConfig(z){
+  const panel=document.getElementById('zone-config');
+  if(z===0||active<0){panel.innerHTML='<div style="color:var(--dim)">Select zone 1-8</div>';return;}
+  const m=proj.maps[active];if(!m)return;ensureSpawnLayer(m);
+  const cfg=m.spawnZones[z];
+  let html=`<h3>Zone ${z} Config</h3>
+    <div class="zone-field"><label>Name:</label><input id="zn" value="${cfg.name||''}" style="width:100%" oninput="saveZoneCfg(${z})"></div>
+    <div style="margin-top:6px;font-size:10px;color:var(--yellow)">Encounter Groups (prob %, maps):</div>`;
+  cfg.groups.forEach((grp,gi)=>{
+    html+=`<div class="grp-row">
+      <span class="grp-name">${grp.name}</span>
+      <input id="zp_${gi}" type="number" min="0" max="100" value="${grp.prob}" oninput="saveZoneCfg(${z})" title="probability %">
+      <span style="color:var(--dim);font-size:9px">%</span>
+      <span class="grp-add-btn" onclick="addMapToGroup(${z},${gi})">+ map</span>
+    </div>`;
+    html+=`<div class="grp-maps" id="grp_maps_${gi}">`;
+    grp.maps.forEach((mapName,mi)=>{
+      html+=`<span onclick="removeMapFromGroup(${z},${gi},${mi})" title="click to remove">${mapName} ×</span>`;
+    });
+    if(!grp.maps.length) html+=`<span style="color:var(--dim);cursor:default">(no maps)</span>`;
+    html+=`</div>`;
+  });
+  // Total probability display
+  const total=cfg.groups.reduce((s,g)=>s+g.prob,0);
+  const color=total===100?'var(--green)':total>100?'var(--accent2)':'var(--yellow)';
+  html+=`<div style="margin-top:4px;font-size:10px">Total: <span style="color:${color}">${total}%</span></div>`;
+  panel.innerHTML=html;
+}
+function saveZoneCfg(z){
+  if(active<0)return;const m=proj.maps[active];if(!m)return;ensureSpawnLayer(m);
+  const cfg=m.spawnZones[z];
+  cfg.name=document.getElementById('zn').value;
+  cfg.groups.forEach((grp,gi)=>{
+    const el=document.getElementById('zp_'+gi);
+    if(el) grp.prob=parseInt(el.value)||0;
+  });
+}
+function addMapToGroup(z,gi){
+  const m=proj.maps[active];if(!m)return;ensureSpawnLayer(m);
+  const allMaps=proj.maps.map(x=>x.name);
+  const name=prompt('Map name to add to group "'+m.spawnZones[z].groups[gi].name+'":\n\nAvailable: '+allMaps.join(', '));
+  if(!name)return;
+  m.spawnZones[z].groups[gi].maps.push(name.trim());
+  showZoneConfig(z);
+}
+function removeMapFromGroup(z,gi,mi){
+  const m=proj.maps[active];if(!m)return;ensureSpawnLayer(m);
+  m.spawnZones[z].groups[gi].maps.splice(mi,1);
+  showZoneConfig(z);
+}
+
+// ======== ENVIRONMENT PALETTE ========
+function buildEnvPalette(){
+  const p=document.getElementById('env-palette-wrap');p.innerHTML='';
+  for(let e=0;e<NUM_ENV;e++){
+    const et=ENV_TYPES[e];const d=document.createElement('div');d.className='env-list-item'+(e===selEnv?' selected':'');
+    const sw=document.createElement('div');sw.className='env-swatch';sw.style.background=et.color;sw.style.color=e===0?'#666':'#fff';sw.textContent=et.short;
+    const nm=document.createElement('span');nm.className='env-name';nm.textContent=e+': '+et.name;
+    d.appendChild(sw);d.appendChild(nm);d.onclick=()=>{selEnv=e;buildEnvPalette();};p.appendChild(d);
+  }
+  buildEnvPreviewSelect();
+}
+function buildEnvPreviewSelect(){
+  const sel=document.getElementById('envPreviewSelect');
+  sel.innerHTML=ENV_TYPES.map((e,i)=>`<option value="${i}"${i===previewEnv?' selected':''}>${e.name}</option>`).join('');
+}
+function onEnvPreview(){
+  previewEnv=parseInt(document.getElementById('envPreviewSelect').value)||0;
+  redraw();
+  // Show tile preview strip for this environment
+  const wrap=document.getElementById('env-tile-preview');wrap.innerHTML='';
+  const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
+  ENV_SENSITIVE_TILES.forEach(t=>{
+    const cv=document.createElement('canvas');cv.width=cv.height=16;cv.style.width='24px';cv.style.height='24px';
+    cv.style.imageRendering='pixelated';cv.style.margin='1px';cv.style.border='1px solid var(--border)';
+    cv.getContext('2d').drawImage(envTiles[t],0,0);
+    cv.title=TILE_NAMES[t];
+    wrap.appendChild(cv);
+  });
+}
+
+// ======== NPC PANEL ========
+function buildNpcPanel(){
+  const tl=document.getElementById('npc-type-list');tl.innerHTML='';
+  NPC_TYPES.forEach((npc,i)=>{
+    const d=document.createElement('div');d.className='npc-type-item'+(i===selNpcType?' active':'');
+    const cv=document.createElement('canvas');cv.width=16;cv.height=32;cv.style.width='24px';cv.style.height='48px';
+    cv.getContext('2d').drawImage(npcImg[i],0,0);
+    const nm=document.createElement('span');nm.className='npc-name';nm.textContent=npc.name;
+    d.appendChild(cv);d.appendChild(nm);
+    d.onclick=()=>{selNpcType=i;buildNpcPanel();buildNpcDropdown();};tl.appendChild(d);
+  });
+  const pl=document.getElementById('npc-placed-list');pl.innerHTML='';
+  const m=active>=0?proj.maps[active]:null;if(!m)return;
+  (m.npcs||[]).forEach((n,i)=>{
+    const d=document.createElement('div');d.className='npc-placed';
+    const ti=NPC_TYPES.findIndex(t=>t.key===n.type);
+    d.innerHTML=`<span style="color:${ti>=0?'var(--green)':'var(--dim)'}">${n.type}</span>
+      <span style="color:var(--dim);margin-left:4px">(${n.tx},${n.ty})</span>
+      <span class="npc-del" onclick="removeNpc(${i})">×</span>`;
+    pl.appendChild(d);
+  });
+}
+function removeNpc(i){const m=proj.maps[active];if(!m)return;m.npcs.splice(i,1);buildNpcPanel();redraw();}
+function buildNpcDropdown(){
+  const sel=document.getElementById('npcSelect');
+  sel.innerHTML=NPC_TYPES.map((n,i)=>`<option value="${i}"${i===selNpcType?' selected':''}>${n.name}</option>`).join('');
+}
+function onNpcDropdown(){selNpcType=parseInt(document.getElementById('npcSelect').value);buildNpcPanel();redraw();}
+function isNpcPlacementValid(m,tx,ty){
+  if(tx<0||tx>=m.w||ty<1||ty>=m.h) return false;
+  ensureColl(m);
+  const footColl=m.collisionLayer[ty*m.w+tx]||0;
+  const headColl=m.collisionLayer[(ty-1)*m.w+tx]||0;
+  const badColls=[1,4,5];
+  if(badColls.includes(footColl)||badColls.includes(headColl)) return false;
+  for(const n of (m.npcs||[])){
+    if(n.tx===tx&&(n.ty===ty||n.ty===ty-1||n.ty-1===ty||n.ty-1===ty-1)) return false;
+  }
+  return true;
+}
+
+// ======== PROJECT OPS ========
+function newProject(){if(!confirm('New project?'))return;proj={version:5,maps:[],manifest:{}};active=-1;fileHandle=null;rebuild();}
+function addMap(){const sz=30*12,tiles=new Array(sz).fill(0);
+  proj.maps.push({name:'map_'+(proj.maps.length+1),w:30,h:12,tiles,collisionLayer:genColl(tiles),envLayer:new Array(sz).fill(0),npcs:[]});active=proj.maps.length-1;rebuild();}
+function addDungeon(){const tiles=new Array(240).fill(0);
+  const r={w:20,h:12,tiles:tiles.slice(),collisionLayer:genColl(tiles),name:'room_a'};
+  proj.maps.push({name:'dungeon_'+(proj.maps.length+1),w:20,h:12,tiles:r.tiles.slice(),collisionLayer:r.collisionLayer.slice(),npcs:[],rooms:[r],currentRoom:0});active=proj.maps.length-1;rebuild();}
+function deleteMap(i){if(!confirm('Delete "'+proj.maps[i].name+'"?'))return;const n=proj.maps[i].name;
+  for(const k in proj.manifest)if(proj.manifest[k]===n)delete proj.manifest[k];proj.maps.splice(i,1);if(active>=proj.maps.length)active=proj.maps.length-1;rebuild();}
+function selectMap(i){saveCur();active=i;loadCur();rebuildList();}
+
+function saveCur(){if(active<0||active>=proj.maps.length)return;const m=proj.maps[active];
+  m.name=san(document.getElementById('tbName').value);ensureColl(m);
+  if(m.rooms&&m.rooms[curRoom]){m.rooms[curRoom].tiles=m.tiles.slice();m.rooms[curRoom].collisionLayer=m.collisionLayer.slice();m.rooms[curRoom].w=m.w;m.rooms[curRoom].h=m.h;}}
+function loadCur(){if(active<0)return;const m=proj.maps[active];ensureColl(m);
+  document.getElementById('tbName').value=m.name;document.getElementById('tbW').value=m.w;document.getElementById('tbH').value=m.h;
+  const isDg=!!m.rooms;document.getElementById('room-tabs-bar').style.display=isDg?'block':'none';
+  const canSpawn=!m.rooms;
+  if(!canSpawn&&(editLayer==='spawn'||editLayer==='env'))setLayer('tiles');
+  if(isDg&&m.rooms.length>0){curRoom=m.currentRoom||0;if(curRoom>=m.rooms.length)curRoom=0;
+    const r=m.rooms[curRoom];ensureRoomColl(r);m.w=r.w;m.h=r.h;m.tiles=r.tiles.slice();m.collisionLayer=r.collisionLayer.slice();
+    document.getElementById('tbW').value=r.w;document.getElementById('tbH').value=r.h;buildRoomTabs(m);}
+  sel=null;cx=0;cy=0;if(curTool==='npc')buildNpcPanel();redraw();updateInfo();}
+
+function buildRoomTabs(m){const bar=document.getElementById('room-tabs-bar');bar.innerHTML='';if(!m||!m.rooms)return;
+  m.rooms.forEach((r,i)=>{const t=document.createElement('span');t.className='room-tab'+(i===curRoom?' active':'');t.textContent=r.name;t.onclick=()=>switchRoom(i);
+    t.ondblclick=()=>{const nn=prompt('Room name:',r.name);if(nn){r.name=nn;buildRoomTabs(m);}};bar.appendChild(t);});
+  const a=document.createElement('span');a.className='room-tab';a.textContent='+';
+  a.onclick=()=>{const tiles=new Array(20*12).fill(0);m.rooms.push({w:20,h:12,tiles,collisionLayer:genColl(tiles),name:'room_'+String.fromCharCode(97+m.rooms.length)});switchRoom(m.rooms.length-1);};bar.appendChild(a);}
+function switchRoom(i){const m=proj.maps[active];if(!m||!m.rooms)return;
+  if(m.rooms[curRoom]){m.rooms[curRoom].tiles=m.tiles.slice();m.rooms[curRoom].collisionLayer=(m.collisionLayer||[]).slice();m.rooms[curRoom].w=m.w;m.rooms[curRoom].h=m.h;}
+  curRoom=i;m.currentRoom=i;const r=m.rooms[i];ensureRoomColl(r);m.w=r.w;m.h=r.h;m.tiles=r.tiles.slice();m.collisionLayer=r.collisionLayer.slice();
+  document.getElementById('tbW').value=r.w;document.getElementById('tbH').value=r.h;buildRoomTabs(m);sel=null;cx=0;cy=0;redraw();updateInfo();}
+
+let mfOpen=true;
+function toggleManifest(){mfOpen=!mfOpen;rebuildManifest();}
+function rebuildManifest(){const b=document.getElementById('manifest-body'),h=document.querySelector('#manifest-panel h2');
+  h.textContent=(mfOpen?'▼':'▶')+' ROLE ASSIGNMENTS';if(!mfOpen){b.innerHTML='';return;}
+  b.innerHTML='';const names=proj.maps.map(m=>m.name);
+  ROLES.forEach(role=>{const d=document.createElement('div');d.className='manifest-row';const s=document.createElement('select');
+    s.innerHTML='<option value="">(none)</option>'+names.map(n=>`<option value="${n}"${proj.manifest[role.key]===n?' selected':''}>${n}</option>`).join('');
+    s.onchange=()=>{if(s.value)proj.manifest[role.key]=s.value;else delete proj.manifest[role.key];rebuildList();};
+    d.innerHTML=`<label>${role.label}:</label>`;d.appendChild(s);b.appendChild(d);});}
+function rebuildList(){const list=document.getElementById('map-list');list.innerHTML='';
+  const rm={};for(const k in proj.manifest)if(proj.manifest[k])(rm[proj.manifest[k]]=rm[proj.manifest[k]]||[]).push(k);
+  proj.maps.forEach((m,i)=>{const d=document.createElement('div');d.className='map-item'+(i===active?' active':'');
+    const tags=(rm[m.name]||[]).map(r=>`<span class="role-tag">${r}</span>`).join('');
+    d.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis">${m.rooms?'📦 ':''}${m.name}${tags}</span><span class="del-btn">×</span>`;
+    d.querySelector('.del-btn').onclick=e=>{e.stopPropagation();deleteMap(i);};d.onclick=()=>selectMap(i);list.appendChild(d);});}
+
+// ======== DRAWING ========
 function redraw(){
-  const pw=mapW*TILE_SIZE*zoom, ph=mapH*TILE_SIZE*zoom;
-  canvas.width=pw; canvas.height=ph;
-  ctx.imageSmoothingEnabled=false;
+  const m=active>=0?proj.maps[active]:null;
+  if(!m){canvas.width=256;canvas.height=192;ctx.fillStyle='#111';ctx.fillRect(0,0,256,192);ctx.fillStyle='#555';ctx.font='12px monospace';ctx.fillText('Select or add a map',50,100);return;}
+  const w=m.w,h=m.h,ts=TILE_SIZE*zoom;
+  canvas.width=w*ts;canvas.height=h*ts;ctx.imageSmoothingEnabled=false;
+  // Choose tile images based on preview env
+  const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const t=m.tiles[y*w+x]||0;
+    if(t<envTiles.length)ctx.drawImage(envTiles[t],x*ts,y*ts,ts,ts);else{ctx.fillStyle='#200';ctx.fillRect(x*ts,y*ts,ts,ts);}}
+  // Collision overlay
+  if(editLayer==='collision'){ensureColl(m);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const c=m.collisionLayer[y*w+x]||0;
+      if(c>0&&c<NUM_COLL){const ct=COLL_TYPES[c];ctx.fillStyle=ct.color+'88';ctx.fillRect(x*ts,y*ts,ts,ts);
+        ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,ts*.45)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(ct.short,x*ts+ts/2,y*ts+ts/2);ctx.textAlign='start';ctx.textBaseline='alphabetic';}}}
+  // Spawn overlay
+  if(editLayer==='spawn'&&m.spawnLayer){
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const z=m.spawnLayer[y*w+x]||0;
+      if(z>0&&z<=MAX_ZONES){ctx.fillStyle=ZONE_COLORS[z]+'66';ctx.fillRect(x*ts,y*ts,ts,ts);
+        ctx.fillStyle='#fff';ctx.font=Math.max(8,ts*.4)+'px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(''+z,x*ts+ts/2,y*ts+ts/2);ctx.textAlign='start';ctx.textBaseline='alphabetic';}}}
+  // Environment overlay
+  if(editLayer==='env'){ensureEnvLayer(m);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const e=m.envLayer[y*w+x]||0;
+      if(e>0&&e<NUM_ENV){const et=ENV_TYPES[e];ctx.fillStyle=et.color+'66';ctx.fillRect(x*ts,y*ts,ts,ts);
+        ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,ts*.4)}px monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(et.short,x*ts+ts/2,y*ts+ts/2);ctx.textAlign='start';ctx.textBaseline='alphabetic';}}}
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1;
+  for(let x=0;x<=w;x++){ctx.beginPath();ctx.moveTo(x*ts+.5,0);ctx.lineTo(x*ts+.5,h*ts);ctx.stroke();}
+  for(let y=0;y<=h;y++){ctx.beginPath();ctx.moveTo(0,y*ts+.5);ctx.lineTo(w*ts,y*ts+.5);ctx.stroke();}
+  // Draw placed NPCs (2 tiles tall)
+  if(m.npcs)(m.npcs).forEach(n=>{
+    const ti=NPC_TYPES.findIndex(t=>t.key===n.type);if(ti<0)return;
+    const nx=n.tx*ts,ny=(n.ty-1)*ts;
+    ctx.drawImage(npcImg[ti],nx,ny,ts,ts*2);
+    ctx.strokeStyle='#4ae08a';ctx.lineWidth=2;ctx.strokeRect(nx+1,ny+1,ts-2,ts*2-2);
+  });
+  // Selection rectangle
+  if(sel){const sx=Math.min(sel.x1,sel.x2),sy=Math.min(sel.y1,sel.y2),ex=Math.max(sel.x1,sel.x2),ey=Math.max(sel.y1,sel.y2);
+    ctx.strokeStyle='rgba(90,200,255,.9)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.strokeRect(sx*ts,sy*ts,(ex-sx+1)*ts,(ey-sy+1)*ts);ctx.setLineDash([]);}
+  // NPC cursor ghost
+  if(curTool==='npc'&&selNpcType>=0&&cx>=0&&cy>=0){
+    const valid=isNpcPlacementValid(m,cx,cy);
+    ctx.globalAlpha=0.6;
+    if(!valid){ctx.fillStyle='rgba(255,40,40,0.4)';ctx.fillRect(cx*ts,(cy-1)*ts,ts,ts*2);}
+    ctx.drawImage(npcImg[selNpcType],cx*ts,(cy-1)*ts,ts,ts*2);
+    if(!valid){ctx.fillStyle='rgba(255,40,40,0.35)';ctx.fillRect(cx*ts,(cy-1)*ts,ts,ts*2);}
+    ctx.globalAlpha=1.0;
+    ctx.strokeStyle=valid?'rgba(80,255,120,.8)':'rgba(255,60,60,.9)';ctx.lineWidth=2;
+    ctx.strokeRect(cx*ts,(cy-1)*ts,ts,ts*2);
+  }
+  if(curTool!=='npc'){ctx.strokeStyle='rgba(255,255,90,.8)';ctx.lineWidth=2;ctx.strokeRect(cx*ts,cy*ts,ts,ts);}
+}
+function updateInfo(){const m=active>=0?proj.maps[active]:null;let tileInfo='Tile: —';
+  if(m){
+    if(editLayer==='spawn')tileInfo='Zone: '+(m.spawnLayer?m.spawnLayer[cy*m.w+cx]||0:'—');
+    else if(editLayer==='env'){ensureEnvLayer(m);const ei=m.envLayer[cy*m.w+cx]||0;tileInfo='Env: '+ENV_TYPES[ei].name;}
+    else if(editLayer==='collision'){ensureColl(m);const ci=m.collisionLayer[cy*m.w+cx]||0;tileInfo='Coll: '+COLL_TYPES[ci].name;}
+    else tileInfo='Tile: '+m.tiles[cy*m.w+cx]+' ('+TILE_NAMES[m.tiles[cy*m.w+cx]||0]+')';}
+  document.getElementById('infoCoord').textContent='Cursor: '+cx+','+cy;
+  document.getElementById('infoTile').textContent=tileInfo;
+  document.getElementById('infoSize').textContent='Size: '+(m?m.w+'×'+m.h:'—');
+  document.getElementById('infoZoom').textContent='Zoom: '+zoom+'×';}
 
-  // Draw tiles
-  for(let y=0;y<mapH;y++) for(let x=0;x<mapW;x++){
-    const t=tiles[y*mapW+x]||0;
-    if(t<NUM_TILES){
-      ctx.drawImage(tileCanvases[t], x*TILE_SIZE*zoom, y*TILE_SIZE*zoom, TILE_SIZE*zoom, TILE_SIZE*zoom);
+// ======== PALETTES ========
+function buildTilePalette(){const p=document.getElementById('tile-palette-wrap');p.innerHTML='';
+  const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
+  for(let t=0;t<NUM_TILES;t++){const d=document.createElement('div');d.className='tile-list-item'+(t===selTile?' selected':'');
+    const cv=document.createElement('canvas');cv.width=cv.height=16;cv.getContext('2d').drawImage(envTiles[t],0,0);
+    const idSpan=document.createElement('span');idSpan.className='tile-id';idSpan.textContent=t;
+    const nameSpan=document.createElement('span');nameSpan.className='tile-name';nameSpan.textContent=TILE_NAMES[t];
+    const envBadge=ENV_SENSITIVE_TILES.includes(t)?'🌍':'';
+    if(envBadge){const eb=document.createElement('span');eb.textContent=envBadge;eb.title='Environment-sensitive tile';eb.style.fontSize='10px';d.appendChild(idSpan);d.appendChild(cv);d.appendChild(nameSpan);d.appendChild(eb);}
+    else{d.appendChild(idSpan);d.appendChild(cv);d.appendChild(nameSpan);}
+    d.onclick=()=>{selTile=t;buildTilePalette();};p.appendChild(d);}}
+function buildCollisionPalette(){const p=document.getElementById('coll-palette-wrap');p.innerHTML='';
+  for(let c=0;c<NUM_COLL;c++){const ct=COLL_TYPES[c];const d=document.createElement('div');d.className='coll-list-item'+(c===selColl?' selected':'');
+    const sw=document.createElement('div');sw.className='coll-swatch';sw.style.background=ct.color;sw.style.color=c===0?'#555':'#fff';sw.textContent=ct.short;
+    const nameSpan=document.createElement('span');nameSpan.className='coll-name';nameSpan.textContent=c+': '+ct.name;
+    d.appendChild(sw);d.appendChild(nameSpan);d.onclick=()=>{selColl=c;buildCollisionPalette();};p.appendChild(d);}}
+
+// ======== TOOLBAR ========
+function onNameChange(){if(active<0)return;const old=proj.maps[active].name,nw=san(document.getElementById('tbName').value);
+  proj.maps[active].name=nw;for(const k in proj.manifest)if(proj.manifest[k]===old)proj.manifest[k]=nw;rebuildList();rebuildManifest();}
+function onResize(){if(active<0)return;const m=proj.maps[active];
+  const nw=parseInt(document.getElementById('tbW').value)||m.w,nh=parseInt(document.getElementById('tbH').value)||m.h;
+  if(nw===m.w&&nh===m.h)return;const oldw=m.w,oldh=m.h;
+  const nt=new Array(nw*nh).fill(0),nc=new Array(nw*nh).fill(0);ensureColl(m);
+  for(let y=0;y<Math.min(nh,m.h);y++)for(let x=0;x<Math.min(nw,m.w);x++){nt[y*nw+x]=m.tiles[y*m.w+x];nc[y*nw+x]=m.collisionLayer[y*m.w+x]||0;}
+  m.w=nw;m.h=nh;m.tiles=nt;m.collisionLayer=nc;
+  if(m.spawnLayer){const ns=new Array(nw*nh).fill(0);for(let y=0;y<Math.min(nh,oldh);y++)for(let x=0;x<Math.min(nw,oldw);x++)ns[y*nw+x]=m.spawnLayer[y*oldw+x]||0;m.spawnLayer=ns;}
+  if(m.envLayer){const ne=new Array(nw*nh).fill(0);for(let y=0;y<Math.min(nh,oldh);y++)for(let x=0;x<Math.min(nw,oldw);x++)ne[y*nw+x]=m.envLayer[y*oldw+x]||0;m.envLayer=ne;}
+  if(m.rooms&&m.rooms[curRoom]){m.rooms[curRoom].w=nw;m.rooms[curRoom].h=nh;m.rooms[curRoom].tiles=nt.slice();m.rooms[curRoom].collisionLayer=nc.slice();}
+  redraw();updateInfo();}
+function fillBorder(){if(active<0)return;const m=proj.maps[active];ensureColl(m);const sc=TILE_TO_COLL[selTile]||0;
+  for(let x=0;x<m.w;x++){m.tiles[x]=selTile;m.tiles[(m.h-1)*m.w+x]=selTile;m.collisionLayer[x]=sc;m.collisionLayer[(m.h-1)*m.w+x]=sc;}
+  for(let y=0;y<m.h;y++){m.tiles[y*m.w]=selTile;m.tiles[y*m.w+m.w-1]=selTile;m.collisionLayer[y*m.w]=sc;m.collisionLayer[y*m.w+m.w-1]=sc;}redraw();}
+function clearMap(){if(active<0||!confirm('Clear?'))return;proj.maps[active].tiles.fill(0);ensureColl(proj.maps[active]);proj.maps[active].collisionLayer.fill(0);redraw();}
+
+// ======== CANVAS INPUT ========
+function cc(e){const r=canvas.getBoundingClientRect(),ts=TILE_SIZE*zoom,m=proj.maps[active];if(!m)return{x:0,y:0};
+  return{x:Math.max(0,Math.min(Math.floor((e.clientX-r.left)/ts),m.w-1)),y:Math.max(0,Math.min(Math.floor((e.clientY-r.top)/ts),m.h-1))};}
+function paint(x,y){const m=proj.maps[active];if(!m||x<0||x>=m.w||y<0||y>=m.h)return;
+  if(editLayer==='spawn'){ensureSpawnLayer(m);m.spawnLayer[y*m.w+x]=selZone;}
+  else if(editLayer==='env'){ensureEnvLayer(m);m.envLayer[y*m.w+x]=selEnv;}
+  else if(editLayer==='collision'){ensureColl(m);m.collisionLayer[y*m.w+x]=selColl;}
+  else{m.tiles[y*m.w+x]=selTile;}redraw();}
+
+canvas.addEventListener('mousedown',e=>{e.preventDefault();if(active<0)return;hideCtxMenu();
+  const p=cc(e);cx=p.x;cy=p.y;
+  if(e.button===2){
+    if(curTool==='npc'){
+      const m=proj.maps[active];if(m&&m.npcs){
+        const idx=m.npcs.findIndex(n=>n.tx===cx&&(n.ty===cy||n.ty-1===cy));
+        if(idx>=0){m.npcs.splice(idx,1);buildNpcPanel();redraw();return;}}
+    }
+    if(editLayer==='spawn'){const m2=proj.maps[active];ensureSpawnLayer(m2);selZone=m2.spawnLayer[cy*m2.w+cx]||0;buildZonePalette();}
+    else if(editLayer==='env'){const m2=proj.maps[active];ensureEnvLayer(m2);selEnv=m2.envLayer[cy*m2.w+cx]||0;buildEnvPalette();}
+    else showCtxMenu(e.clientX,e.clientY);
+    updateInfo();return;
+  }
+  if(curTool==='npc'){
+    const m=proj.maps[active];if(!m)return;
+    if(selNpcType>=0&&isNpcPlacementValid(m,cx,cy)){
+      if(!m.npcs)m.npcs=[];m.npcs.push({tx:cx,ty:cy,type:NPC_TYPES[selNpcType].key});buildNpcPanel();redraw();}
+    updateInfo();return;
+  }
+  if(curTool==='select'){sel=null;selDrag=true;selAnchorX=cx;selAnchorY=cy;sel={x1:cx,y1:cy,x2:cx,y2:cy};redraw();updateInfo();return;}
+  painting=true;paint(cx,cy);updateInfo();});
+
+canvas.addEventListener('mousemove',e=>{if(active<0)return;const p=cc(e);cx=p.x;cy=p.y;
+  if(selDrag&&curTool==='select'){sel={x1:selAnchorX,y1:selAnchorY,x2:cx,y2:cy};}
+  if(painting&&curTool==='paint')paint(cx,cy);updateInfo();redraw();});
+canvas.addEventListener('mouseup',()=>{painting=false;selDrag=false;});
+canvas.addEventListener('mouseleave',()=>{painting=false;selDrag=false;});
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+document.getElementById('canvas-wrap').addEventListener('wheel',e=>{e.preventDefault();zoom=e.deltaY<0?Math.min(zoom+1,8):Math.max(zoom-1,1);updateInfo();redraw();},{passive:false});
+
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;if(active<0)return;const m=proj.maps[active];
+  if(e.key==='Escape'){sel=null;selNpcType=-1;if(curTool==='npc')buildNpcPanel();redraw();return;}
+  switch(e.key){
+    case'ArrowLeft':cx=Math.max(0,cx-1);e.preventDefault();break;
+    case'ArrowRight':cx=Math.min(m.w-1,cx+1);e.preventDefault();break;
+    case'ArrowUp':cy=Math.max(0,cy-1);e.preventDefault();break;
+    case'ArrowDown':cy=Math.min(m.h-1,cy+1);e.preventDefault();break;
+    case' ':if(curTool==='paint')paint(cx,cy);e.preventDefault();break;
+    case'Tab':setLayer(editLayer==='tiles'?'collision':editLayer==='collision'?'spawn':editLayer==='spawn'?'env':'tiles');e.preventDefault();break;
+    case'+':case'=':zoom=Math.min(zoom+1,8);break;case'-':zoom=Math.max(zoom-1,1);break;
+  }
+  if(e.key>='0'&&e.key<='9'){const n=parseInt(e.key);
+    if(editLayer==='spawn'){if(n<=MAX_ZONES){selZone=n;buildZonePalette();}}
+    else if(editLayer==='env'){if(n<NUM_ENV){selEnv=n;buildEnvPalette();}}
+    else if(editLayer==='collision'){if(n<NUM_COLL){selColl=n;buildCollisionPalette();}}
+    else{if(n<NUM_TILES)selTile=n;buildTilePalette();}}
+  updateInfo();redraw();
+});
+
+// ======== CONTEXT MENU ========
+const ctxMenu=document.getElementById('ctx-menu');
+function hideCtxMenu(){ctxMenu.style.display='none';}
+document.addEventListener('click',e=>{if(!ctxMenu.contains(e.target))hideCtxMenu();});
+
+function selNorm(){if(!sel)return null;return{x1:Math.min(sel.x1,sel.x2),y1:Math.min(sel.y1,sel.y2),x2:Math.max(sel.x1,sel.x2),y2:Math.max(sel.y1,sel.y2)};}
+
+function showCtxMenu(mx,my){
+  const m=proj.maps[active];if(!m)return;ensureColl(m);
+  const sn=selNorm();
+  const hasSel=sn&&(sn.x2>sn.x1||sn.y2>sn.y1);
+  let html='';
+  if(hasSel){
+    html+=`<div class="ctx-item" onclick="ctxCopyRect()">📋 Copy Selection (${sn.x2-sn.x1+1}×${sn.y2-sn.y1+1})</div>`;
+  } else {
+    html+=`<div class="ctx-item" onclick="ctxCopySingle()">📋 Copy Tile</div>`;
+  }
+  if(clip) html+=`<div class="ctx-item" onclick="ctxPasteRect()">📌 Paste (${clip.w}×${clip.h})</div>`;
+  else html+=`<div class="ctx-item disabled">📌 Paste</div>`;
+  html+=`<div class="ctx-item" onclick="ctxPickTile()">🔍 Pick Tile</div>`;
+  html+=`<div class="ctx-item" onclick="ctxPickColl()">🎯 Pick Collision</div>`;
+  html+=`<div class="ctx-sep"></div>`;
+  if(hasSel){
+    html+=`<div class="ctx-sub"><div class="ctx-item">⚡ Set Coll for Selection</div><div class="ctx-submenu">`;
+    COLL_TYPES.forEach(ct=>{html+=`<div class="ctx-item" onclick="ctxSetCollRect(${ct.id})"><span class="ctx-cswatch" style="background:${ct.color}"></span>${ct.name}</div>`;});
+    html+=`</div></div>`;
+    html+=`<div class="ctx-item" onclick="ctxAutoCollRect()">🔄 Auto-Coll Selection</div>`;
+  } else {
+    const curCollId=m.collisionLayer[cy*m.w+cx]||0;
+    html+=`<div class="ctx-sub"><div class="ctx-item">⚡ Set Collision Type</div><div class="ctx-submenu">`;
+    COLL_TYPES.forEach(ct=>{const mark=ct.id===curCollId?' ✓':'';
+      html+=`<div class="ctx-item" onclick="ctxSetCollSingle(${ct.id})"><span class="ctx-cswatch" style="background:${ct.color}"></span>${ct.name}${mark}</div>`;});
+    html+=`</div></div>`;
+    html+=`<div class="ctx-item" onclick="ctxAutoCollSingle()">🔄 Auto-Coll from Tile</div>`;
+  }
+  html+=`<div class="ctx-item" onclick="ctxAutoCollAll()">🔄 Auto-Coll Entire Map</div>`;
+  ctxMenu.innerHTML=html;ctxMenu.style.display='block';
+  ctxMenu.style.left=mx+'px';ctxMenu.style.top=my+'px';
+  const rect=ctxMenu.getBoundingClientRect(),vw=window.innerWidth,vh=window.innerHeight;
+  if(rect.right>vw)ctxMenu.style.left=(vw-rect.width-4)+'px';
+  if(rect.bottom>vh)ctxMenu.style.top=(vh-rect.height-4)+'px';
+}
+function ctxCopySingle(){const m=proj.maps[active];if(!m)return;ensureColl(m);
+  clip={w:1,h:1,tiles:[m.tiles[cy*m.w+cx]||0],coll:[m.collisionLayer[cy*m.w+cx]||0]};hideCtxMenu();}
+function ctxPickTile(){const m=proj.maps[active];if(!m)return;selTile=m.tiles[cy*m.w+cx]||0;buildTilePalette();setLayer('tiles');setTool('paint');hideCtxMenu();}
+function ctxPickColl(){const m=proj.maps[active];if(!m)return;ensureColl(m);selColl=m.collisionLayer[cy*m.w+cx]||0;buildCollisionPalette();setLayer('collision');setTool('paint');hideCtxMenu();}
+function ctxSetCollSingle(id){const m=proj.maps[active];if(!m)return;ensureColl(m);m.collisionLayer[cy*m.w+cx]=id;redraw();hideCtxMenu();}
+function ctxAutoCollSingle(){const m=proj.maps[active];if(!m)return;ensureColl(m);const t=m.tiles[cy*m.w+cx]||0;m.collisionLayer[cy*m.w+cx]=(t<TILE_TO_COLL.length)?TILE_TO_COLL[t]:0;redraw();hideCtxMenu();}
+function ctxCopyRect(){const m=proj.maps[active];if(!m||!sel)return;ensureColl(m);const sn=selNorm();
+  const w=sn.x2-sn.x1+1,h=sn.y2-sn.y1+1,tiles=[],coll=[];
+  for(let y=sn.y1;y<=sn.y2;y++)for(let x=sn.x1;x<=sn.x2;x++){tiles.push(m.tiles[y*m.w+x]||0);coll.push(m.collisionLayer[y*m.w+x]||0);}
+  clip={w,h,tiles,coll};hideCtxMenu();}
+function ctxPasteRect(){const m=proj.maps[active];if(!m||!clip)return;ensureColl(m);
+  for(let dy=0;dy<clip.h;dy++)for(let dx=0;dx<clip.w;dx++){
+    const tx=cx+dx,ty=cy+dy;if(tx>=m.w||ty>=m.h)continue;
+    m.tiles[ty*m.w+tx]=clip.tiles[dy*clip.w+dx];m.collisionLayer[ty*m.w+tx]=clip.coll[dy*clip.w+dx];}
+  redraw();hideCtxMenu();}
+function ctxSetCollRect(id){const m=proj.maps[active];if(!m||!sel)return;ensureColl(m);const sn=selNorm();
+  for(let y=sn.y1;y<=sn.y2;y++)for(let x=sn.x1;x<=sn.x2;x++)m.collisionLayer[y*m.w+x]=id;redraw();hideCtxMenu();}
+function ctxAutoCollRect(){const m=proj.maps[active];if(!m||!sel)return;ensureColl(m);const sn=selNorm();
+  for(let y=sn.y1;y<=sn.y2;y++)for(let x=sn.x1;x<=sn.x2;x++){const t=m.tiles[y*m.w+x]||0;m.collisionLayer[y*m.w+x]=(t<TILE_TO_COLL.length)?TILE_TO_COLL[t]:0;}
+  redraw();hideCtxMenu();}
+function ctxAutoCollAll(){const m=proj.maps[active];if(!m)return;if(!confirm('Regenerate collision for entire map?'))return;m.collisionLayer=genColl(m.tiles);redraw();hideCtxMenu();}
+
+// ======== DUNGEON VIEW ========
+let dgView=false; // are we in dungeon overview mode?
+let dgDrag=null; // {roomIdx, offX, offY} room being dragged
+let dgLinking=null; // {roomIdx} room we're drawing a transition line from
+let dgMouse={x:0,y:0}; // mouse position in canvas coords
+let dgHover=-1; // room index mouse is over
+const DG_ROOM_SCALE=2; // pixels per tile in dungeon overview
+const DG_PAD=20; // padding around rooms
+
+function isDungeon(m){return m&&!!m.rooms&&m.rooms.length>0;}
+
+function initRoomPositions(m){
+  if(!m.roomPos) m.roomPos=[];
+  m.rooms.forEach((r,i)=>{
+    if(!m.roomPos[i]){
+      const col=i%4, row=Math.floor(i/4);
+      m.roomPos[i]={x:DG_PAD+col*(r.w*DG_ROOM_SCALE+DG_PAD*3), y:DG_PAD+row*(r.h*DG_ROOM_SCALE+DG_PAD*3)};
+    }
+  });
+  if(!m.transitions) m.transitions=[];
+}
+
+function enterDungeonView(){
+  const m=proj.maps[active];
+  if(!m||!isDungeon(m)) return;
+  saveCur();
+  initRoomPositions(m);
+  dgView=true;dgLinking=null;dgDrag=null;dgHover=-1;
+  document.getElementById('room-tabs-bar').style.display='none';
+  document.getElementById('btn-dg-return').style.display='none';
+  // Hide right panel palettes for cleaner view
+  redrawDungeon();
+}
+
+function exitDungeonView(roomIdx){
+  const m=proj.maps[active];if(!m)return;
+  dgView=false;dgLinking=null;
+  switchRoom(roomIdx);
+  document.getElementById('btn-dg-return').style.display='inline-block';
+  document.getElementById('room-tabs-bar').style.display='block';
+}
+
+function roomHitTest(m,mx,my){
+  for(let i=m.rooms.length-1;i>=0;i--){
+    const p=m.roomPos[i], r=m.rooms[i];
+    const rw=r.w*DG_ROOM_SCALE, rh=r.h*DG_ROOM_SCALE;
+    if(mx>=p.x&&mx<=p.x+rw&&my>=p.y&&my<=p.y+rh) return i;
+  }
+  return -1;
+}
+
+function roomHasTransitions(room){
+  ensureRoomColl(room);
+  for(let i=0;i<room.w*room.h;i++){
+    const cid=room.collisionLayer[i]||0;
+    // Collision type 7 = transition (flag 0x40)
+    if(cid===7) return true;
+    // Also check tile type 9 = transition
+    if(room.tiles[i]===9) return true;
+  }
+  return false;
+}
+
+function getTransitionTiles(room){
+  // Return list of {tx,ty} for tiles that are transitions
+  const result=[];
+  ensureRoomColl(room);
+  for(let y=0;y<room.h;y++) for(let x=0;x<room.w;x++){
+    const idx=y*room.w+x;
+    const cid=room.collisionLayer[idx]||0;
+    if(cid===7||room.tiles[idx]===9) result.push({tx:x,ty:y});
+  }
+  return result;
+}
+
+function renderMiniRoom(room, highlightTiles, scale){
+  scale=scale||DG_ROOM_SCALE;
+  const cv=document.createElement('canvas');
+  cv.width=room.w*scale;cv.height=room.h*scale;
+  const g=cv.getContext('2d');g.imageSmoothingEnabled=false;
+  const envTiles=tileImgByEnv[0];
+  for(let y=0;y<room.h;y++) for(let x=0;x<room.w;x++){
+    const t=room.tiles[y*room.w+x]||0;
+    if(t<envTiles.length) g.drawImage(envTiles[t],x*scale,y*scale,scale,scale);
+    else{g.fillStyle='#200';g.fillRect(x*scale,y*scale,scale,scale);}
+  }
+  // Highlight transition tiles
+  if(highlightTiles){
+    highlightTiles.forEach(ht=>{
+      g.fillStyle='rgba(160,90,255,0.45)';g.fillRect(ht.tx*scale,ht.ty*scale,scale,scale);
+      g.strokeStyle='#bf7fff';g.lineWidth=1;g.strokeRect(ht.tx*scale+.5,ht.ty*scale+.5,scale-1,scale-1);
+    });
+  }
+  return cv;
+}
+
+function redrawDungeon(){
+  if(!dgView)return;
+  const m=proj.maps[active];if(!m||!isDungeon(m))return;
+  initRoomPositions(m);
+  // Calculate canvas size to fit all rooms
+  let maxX=400,maxY=300;
+  m.rooms.forEach((r,i)=>{
+    const p=m.roomPos[i];
+    maxX=Math.max(maxX,p.x+r.w*DG_ROOM_SCALE+DG_PAD);
+    maxY=Math.max(maxY,p.y+r.h*DG_ROOM_SCALE+DG_PAD);
+  });
+  canvas.width=maxX;canvas.height=maxY;
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle='#080812';ctx.fillRect(0,0,maxX,maxY);
+  // Draw existing transition lines
+  (m.transitions||[]).forEach(tr=>{
+    const ra=m.rooms[tr.fromRoom],rb=m.rooms[tr.toRoom];
+    if(!ra||!rb)return;
+    const pa=m.roomPos[tr.fromRoom],pb=m.roomPos[tr.toRoom];
+    const ax=pa.x+ra.w*DG_ROOM_SCALE/2, ay=pa.y+ra.h*DG_ROOM_SCALE/2;
+    const bx=pb.x+rb.w*DG_ROOM_SCALE/2, by=pb.y+rb.h*DG_ROOM_SCALE/2;
+    ctx.strokeStyle='rgba(160,90,255,0.6)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+    ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();ctx.setLineDash([]);
+    // Small diamond at midpoint
+    const mx2=(ax+bx)/2,my2=(ay+by)/2;
+    ctx.fillStyle='#9f5fff';ctx.beginPath();ctx.moveTo(mx2,my2-4);ctx.lineTo(mx2+4,my2);ctx.lineTo(mx2,my2+4);ctx.lineTo(mx2-4,my2);ctx.closePath();ctx.fill();
+  });
+  // Draw rooms
+  m.rooms.forEach((r,i)=>{
+    const p=m.roomPos[i];
+    const rw=r.w*DG_ROOM_SCALE, rh=r.h*DG_ROOM_SCALE;
+    // Room mini render
+    const mini=renderMiniRoom(r,getTransitionTiles(r));
+    ctx.drawImage(mini,p.x,p.y);
+    // Border
+    let borderCol='#3a3a66';
+    if(dgLinking&&dgHover===i){
+      borderCol=roomHasTransitions(r)?'#4ae08a':'#ff4444';
+    } else if(dgHover===i){
+      borderCol='#5b8aff';
+    }
+    ctx.strokeStyle=borderCol;ctx.lineWidth=2;ctx.strokeRect(p.x-1,p.y-1,rw+2,rh+2);
+    // Label
+    ctx.fillStyle='#d0d0e0';ctx.font='bold 11px monospace';ctx.textBaseline='bottom';
+    ctx.fillText(r.name||('room_'+i),p.x,p.y-3);
+    ctx.textBaseline='alphabetic';
+  });
+  // Draw linking line
+  if(dgLinking!==null){
+    const sr=m.rooms[dgLinking.roomIdx];
+    const sp=m.roomPos[dgLinking.roomIdx];
+    const sx=sp.x+sr.w*DG_ROOM_SCALE/2, sy=sp.y+sr.h*DG_ROOM_SCALE/2;
+    ctx.strokeStyle='rgba(90,200,255,0.8)';ctx.lineWidth=2;ctx.setLineDash([6,3]);
+    ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(dgMouse.x,dgMouse.y);ctx.stroke();ctx.setLineDash([]);
+    // Arrow head at mouse
+    const dx=dgMouse.x-sx,dy=dgMouse.y-sy,len=Math.sqrt(dx*dx+dy*dy);
+    if(len>10){
+      const ux=dx/len,uy=dy/len;
+      ctx.fillStyle='rgba(90,200,255,0.8)';ctx.beginPath();
+      ctx.moveTo(dgMouse.x,dgMouse.y);ctx.lineTo(dgMouse.x-ux*8+uy*5,dgMouse.y-uy*8-ux*5);
+      ctx.lineTo(dgMouse.x-ux*8-uy*5,dgMouse.y-uy*8+ux*5);ctx.closePath();ctx.fill();
     }
   }
-
-  // Grid lines (subtle)
-  ctx.strokeStyle='rgba(255,255,255,0.08)';
-  ctx.lineWidth=1;
-  for(let x=0;x<=mapW;x++){ctx.beginPath();ctx.moveTo(x*TILE_SIZE*zoom,0);ctx.lineTo(x*TILE_SIZE*zoom,ph);ctx.stroke();}
-  for(let y=0;y<=mapH;y++){ctx.beginPath();ctx.moveTo(0,y*TILE_SIZE*zoom);ctx.lineTo(pw,y*TILE_SIZE*zoom);ctx.stroke();}
-
-  // Cursor
-  ctx.strokeStyle='#e94560'; ctx.lineWidth=2;
-  ctx.strokeRect(cursorX*TILE_SIZE*zoom+1, cursorY*TILE_SIZE*zoom+1, TILE_SIZE*zoom-2, TILE_SIZE*zoom-2);
+  // Info text
+  ctx.fillStyle='#666680';ctx.font='11px monospace';ctx.textBaseline='top';
+  let hint='Double-click room to edit  |  Right-click room: set up transition  |  Drag to reposition';
+  if(dgLinking) hint='Click a room to connect transition  |  Esc to cancel';
+  ctx.fillText(hint,8,maxY-18);ctx.textBaseline='alphabetic';
 }
 
-function updateLabels(){
-  document.getElementById('posLabel').textContent=`${cursorX}, ${cursorY}`;
-  document.getElementById('zoomLabel').textContent=`${zoom}x`;
-  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-  let label=`"${mapName}" — ${document.getElementById('mapType').selectedOptions[0].text} ${mapW}×${mapH}`;
-  if(isDungeon) label+=` — ${rooms[currentRoom].name}`;
-  document.getElementById('mapLabel').textContent=label;
+// ======== DUNGEON VIEW INPUT ========
+function dgCanvasCoords(e){
+  const r=canvas.getBoundingClientRect();
+  return{x:e.clientX-r.left, y:e.clientY-r.top};
 }
 
-// ======================================================================
-// Input: mouse
-// ======================================================================
-function canvasCoords(e){
-  const rect=canvas.getBoundingClientRect();
-  const x=Math.floor((e.clientX-rect.left)/(TILE_SIZE*zoom));
-  const y=Math.floor((e.clientY-rect.top)/(TILE_SIZE*zoom));
-  return {x:Math.max(0,Math.min(x,mapW-1)), y:Math.max(0,Math.min(y,mapH-1))};
-}
-
-function paintAt(x,y){
-  if(x>=0&&x<mapW&&y>=0&&y<mapH){
-    tiles[y*mapW+x]=selectedTile;
-    redraw();
-  }
-}
-
-canvas.addEventListener('mousedown',e=>{
-  e.preventDefault();
-  const {x,y}=canvasCoords(e);
-  cursorX=x; cursorY=y;
+function dgMouseDown(e){
+  if(!dgView)return false;
+  const m=proj.maps[active];if(!m)return false;
+  const p=dgCanvasCoords(e);dgMouse=p;
   if(e.button===2){
-    // Right click: pick tile
-    selectTile(tiles[y*mapW+x]||0);
-    buildPalette();
+    // Right-click: start transition linking
+    const hit=roomHitTest(m,p.x,p.y);
+    if(hit>=0){
+      e.preventDefault();
+      dgLinking={roomIdx:hit};
+      redrawDungeon();
+      return true;
+    }
+    return true;
+  }
+  if(e.button===0){
+    if(dgLinking){
+      // Finish linking: click on a target room
+      const hit=roomHitTest(m,p.x,p.y);
+      if(hit>=0&&hit!==dgLinking.roomIdx&&roomHasTransitions(m.rooms[hit])){
+        showTransitionEditor(dgLinking.roomIdx, hit);
+      }
+      dgLinking=null;redrawDungeon();return true;
+    }
+    // Start dragging a room
+    const hit=roomHitTest(m,p.x,p.y);
+    if(hit>=0){
+      const rp=m.roomPos[hit];
+      dgDrag={roomIdx:hit, offX:p.x-rp.x, offY:p.y-rp.y};
+      return true;
+    }
+  }
+  return true;
+}
+
+function dgMouseMove(e){
+  if(!dgView)return false;
+  const m=proj.maps[active];if(!m)return false;
+  const p=dgCanvasCoords(e);dgMouse=p;
+  if(dgDrag){
+    m.roomPos[dgDrag.roomIdx].x=Math.max(0,p.x-dgDrag.offX);
+    m.roomPos[dgDrag.roomIdx].y=Math.max(14,p.y-dgDrag.offY);
+    redrawDungeon();return true;
+  }
+  const hit=roomHitTest(m,p.x,p.y);
+  if(hit!==dgHover){dgHover=hit;redrawDungeon();}
+  return true;
+}
+
+function dgMouseUp(e){
+  if(!dgView)return false;
+  dgDrag=null;return true;
+}
+
+function dgDblClick(e){
+  if(!dgView)return false;
+  const m=proj.maps[active];if(!m)return false;
+  const p=dgCanvasCoords(e);
+  const hit=roomHitTest(m,p.x,p.y);
+  if(hit>=0){exitDungeonView(hit);return true;}
+  return true;
+}
+
+function dgKeyDown(e){
+  if(!dgView)return false;
+  if(e.key==='Escape'&&dgLinking){dgLinking=null;redrawDungeon();return true;}
+  return false;
+}
+
+// ======== TRANSITION EDITOR MODAL ========
+function showTransitionEditor(fromIdx, toIdx){
+  const m=proj.maps[active];if(!m)return;
+  const rA=m.rooms[fromIdx], rB=m.rooms[toIdx];
+  const transA=getTransitionTiles(rA), transB=getTransitionTiles(rB);
+  if(!m.transitions) m.transitions=[];
+  // Find existing bindings between these two rooms
+  const existing=m.transitions.filter(t=>
+    (t.fromRoom===fromIdx&&t.toRoom===toIdx)||(t.fromRoom===toIdx&&t.toRoom===fromIdx));
+
+  const overlay=document.getElementById('dg-overlay');
+  const modal=document.getElementById('dg-modal');
+
+  const mapScaleA=Math.min(4, Math.floor(280/(rA.w||1)));
+  const mapScaleB=Math.min(4, Math.floor(280/(rB.w||1)));
+
+  let selFromTile=-1, selToTile=-1;
+  let pendingBindings=[]; // new bindings to add
+
+  function renderModal(){
+    // Highlight tiles: existing bound ones + selected
+    const hlA=transA.map((t,i)=>{
+      const isBound=existing.some(b=>b.fromRoom===fromIdx&&b.fromTx===t.tx&&b.fromTy===t.ty)||
+                     existing.some(b=>b.toRoom===fromIdx&&b.toTx===t.tx&&b.toTy===t.ty)||
+                     pendingBindings.some(b=>b.fromTx===t.tx&&b.fromTy===t.ty);
+      return {...t, sel:i===selFromTile, bound:isBound};
+    });
+    const hlB=transB.map((t,i)=>{
+      const isBound=existing.some(b=>b.toRoom===toIdx&&b.toTx===t.tx&&b.toTy===t.ty)||
+                     existing.some(b=>b.fromRoom===toIdx&&b.fromTx===t.tx&&b.fromTy===t.ty)||
+                     pendingBindings.some(b=>b.toTx===t.tx&&b.toTy===t.ty);
+      return {...t, sel:i===selToTile, bound:isBound};
+    });
+
+    let html=`<div class="dg-title">Transition Editor: ${rA.name||'Room '+fromIdx} ↔ ${rB.name||'Room '+toIdx}</div>`;
+    html+=`<div class="dg-body">`;
+    html+=`<div class="dg-maps-row">`;
+    // Left map
+    html+=`<div class="dg-map-col"><h4>${rA.name||'Room '+fromIdx} (origin)</h4>`;
+    html+=`<canvas id="dg-mapA" width="${rA.w*mapScaleA}" height="${rA.h*mapScaleA}" style="width:${rA.w*mapScaleA}px;height:${rA.h*mapScaleA}px"></canvas>`;
+    html+=`<select id="dg-selA">`;
+    html+=`<option value="-1">(select transition tile)</option>`;
+    transA.forEach((t,i)=>{html+=`<option value="${i}"${i===selFromTile?' selected':''}>Tile (${t.tx},${t.ty})</option>`;});
+    html+=`</select></div>`;
+    // Right map
+    html+=`<div class="dg-map-col"><h4>${rB.name||'Room '+toIdx} (destination)</h4>`;
+    html+=`<canvas id="dg-mapB" width="${rB.w*mapScaleB}" height="${rB.h*mapScaleB}" style="width:${rB.w*mapScaleB}px;height:${rB.h*mapScaleB}px"></canvas>`;
+    html+=`<select id="dg-selB">`;
+    html+=`<option value="-1">(select transition tile)</option>`;
+    transB.forEach((t,i)=>{html+=`<option value="${i}"${i===selToTile?' selected':''}>Tile (${t.tx},${t.ty})</option>`;});
+    html+=`</select></div>`;
+    html+=`</div>`; // end maps-row
+
+    // Existing bindings
+    html+=`<div class="dg-bindings"><h4>Existing Bindings</h4>`;
+    const allBindings=existing.concat(pendingBindings.map(b=>({fromRoom:fromIdx,toRoom:toIdx,...b,pending:true})));
+    if(allBindings.length===0) html+=`<div style="color:var(--dim);font-size:10px">No bindings yet</div>`;
+    allBindings.forEach((b,bi)=>{
+      const isFrom=(b.fromRoom===fromIdx);
+      const aTile=isFrom?`(${b.fromTx},${b.fromTy})`:`(${b.toTx},${b.toTy})`;
+      const bTile=isFrom?`(${b.toTx},${b.toTy})`:`(${b.fromTx},${b.fromTy})`;
+      const label=b.pending?'<span style="color:var(--yellow)">[new]</span>':'';
+      html+=`<div class="dg-binding-row">${label} ${rA.name||'Room '+fromIdx} <b>${aTile}</b> <span class="dg-arrow">⟷</span> ${rB.name||'Room '+toIdx} <b>${bTile}</b>`;
+      html+=`<span class="dg-del" data-bi="${bi}" title="Remove binding">×</span></div>`;
+    });
+    html+=`</div>`; // end bindings
+
+    // Add binding button
+    html+=`<div style="margin-top:8px"><button class="dg-btn" id="dg-add-bind" ${(selFromTile<0||selToTile<0)?'disabled style="opacity:0.4"':''}>+ Add Binding</button></div>`;
+
+    html+=`</div>`; // end body
+    html+=`<div class="dg-footer"><button class="dg-btn" id="dg-cancel">Cancel</button><button class="dg-btn dg-btn-ok" id="dg-ok">OK</button></div>`;
+    modal.innerHTML=html;
+
+    // Draw mini maps with highlights
+    const cvA=document.getElementById('dg-mapA');
+    if(cvA){
+      const gA=cvA.getContext('2d');gA.imageSmoothingEnabled=false;
+      const envTiles=tileImgByEnv[0];
+      for(let y=0;y<rA.h;y++) for(let x=0;x<rA.w;x++){
+        const t=rA.tiles[y*rA.w+x]||0;
+        if(t<envTiles.length) gA.drawImage(envTiles[t],x*mapScaleA,y*mapScaleA,mapScaleA,mapScaleA);
+        else{gA.fillStyle='#200';gA.fillRect(x*mapScaleA,y*mapScaleA,mapScaleA,mapScaleA);}
+      }
+      hlA.forEach(h=>{
+        if(h.sel){gA.fillStyle='rgba(255,200,40,0.5)';gA.fillRect(h.tx*mapScaleA,h.ty*mapScaleA,mapScaleA,mapScaleA);
+          gA.strokeStyle='#f0c040';gA.lineWidth=2;gA.strokeRect(h.tx*mapScaleA+1,h.ty*mapScaleA+1,mapScaleA-2,mapScaleA-2);}
+        else if(h.bound){gA.fillStyle='rgba(90,255,140,0.35)';gA.fillRect(h.tx*mapScaleA,h.ty*mapScaleA,mapScaleA,mapScaleA);}
+        else{gA.fillStyle='rgba(160,90,255,0.3)';gA.fillRect(h.tx*mapScaleA,h.ty*mapScaleA,mapScaleA,mapScaleA);}
+      });
+    }
+    const cvB=document.getElementById('dg-mapB');
+    if(cvB){
+      const gB=cvB.getContext('2d');gB.imageSmoothingEnabled=false;
+      const envTiles=tileImgByEnv[0];
+      for(let y=0;y<rB.h;y++) for(let x=0;x<rB.w;x++){
+        const t=rB.tiles[y*rB.w+x]||0;
+        if(t<envTiles.length) gB.drawImage(envTiles[t],x*mapScaleB,y*mapScaleB,mapScaleB,mapScaleB);
+        else{gB.fillStyle='#200';gB.fillRect(x*mapScaleB,y*mapScaleB,mapScaleB,mapScaleB);}
+      }
+      hlB.forEach(h=>{
+        if(h.sel){gB.fillStyle='rgba(255,200,40,0.5)';gB.fillRect(h.tx*mapScaleB,h.ty*mapScaleB,mapScaleB,mapScaleB);
+          gB.strokeStyle='#f0c040';gB.lineWidth=2;gB.strokeRect(h.tx*mapScaleB+1,h.ty*mapScaleB+1,mapScaleB-2,mapScaleB-2);}
+        else if(h.bound){gB.fillStyle='rgba(90,255,140,0.35)';gB.fillRect(h.tx*mapScaleB,h.ty*mapScaleB,mapScaleB,mapScaleB);}
+        else{gB.fillStyle='rgba(160,90,255,0.3)';gB.fillRect(h.tx*mapScaleB,h.ty*mapScaleB,mapScaleB,mapScaleB);}
+      });
+    }
+
+    // Wire events
+    document.getElementById('dg-selA').onchange=function(){selFromTile=parseInt(this.value);renderModal();};
+    document.getElementById('dg-selB').onchange=function(){selToTile=parseInt(this.value);renderModal();};
+    document.getElementById('dg-cancel').onclick=function(){overlay.style.display='none';redrawDungeon();};
+    document.getElementById('dg-ok').onclick=function(){
+      // Commit pending bindings
+      pendingBindings.forEach(b=>{m.transitions.push({fromRoom:fromIdx,toRoom:toIdx,fromTx:b.fromTx,fromTy:b.fromTy,toTx:b.toTx,toTy:b.toTy});});
+      overlay.style.display='none';redrawDungeon();
+    };
+    const addBtn=document.getElementById('dg-add-bind');
+    if(addBtn&&selFromTile>=0&&selToTile>=0){
+      addBtn.onclick=function(){
+        const ft=transA[selFromTile], tt=transB[selToTile];
+        pendingBindings.push({fromTx:ft.tx,fromTy:ft.ty,toTx:tt.tx,toTy:tt.ty});
+        selFromTile=-1;selToTile=-1;renderModal();
+      };
+    }
+    // Wire delete buttons
+    modal.querySelectorAll('.dg-del').forEach(el=>{
+      el.onclick=function(){
+        const bi=parseInt(this.dataset.bi);
+        if(bi<existing.length){
+          // Remove from m.transitions
+          const tr=existing[bi];
+          const idx=m.transitions.indexOf(tr);
+          if(idx>=0) m.transitions.splice(idx,1);
+          existing.splice(bi,1);
+        } else {
+          pendingBindings.splice(bi-existing.length,1);
+        }
+        renderModal();
+      };
+    });
+  }
+
+  overlay.style.display='block';
+  renderModal();
+}
+
+// Hook into existing canvas events — intercept when in dungeon view
+const _origMouseDown=canvas.onmousedown;
+canvas.addEventListener('mousedown',function(e){
+  if(dgView){if(dgMouseDown(e)){e.preventDefault();e.stopPropagation();}return;}
+},true);
+canvas.addEventListener('mousemove',function(e){
+  if(dgView){dgMouseMove(e);e.preventDefault();e.stopPropagation();return;}
+},true);
+canvas.addEventListener('mouseup',function(e){
+  if(dgView){dgMouseUp(e);return;}
+},true);
+canvas.addEventListener('dblclick',function(e){
+  if(dgView){dgDblClick(e);e.preventDefault();return;}
+},true);
+document.addEventListener('keydown',function(e){
+  if(dgView&&dgKeyDown(e)){e.preventDefault();e.stopImmediatePropagation();}
+},true);
+
+// Override loadCur to detect dungeon-fixed maps and offer dungeon view
+const _origLoadCur=loadCur;
+function loadCurWrapped(){
+  _origLoadCur.apply(this,arguments);
+  const m=proj.maps[active];
+  if(m&&isDungeon(m)){
+    // Check if this dungeon has a fixed role assigned
+    const name=m.name;
+    let isFixed=false;
+    for(const k in proj.manifest){if(proj.manifest[k]===name&&k.includes('dungeon'))isFixed=true;}
+    // Also consider any dungeon map as eligible
+    if(isDungeon(m)){
+      document.getElementById('btn-dg-return').style.display='inline-block';
+    }
   } else {
-    painting=true;
-    paintAt(x,y);
+    document.getElementById('btn-dg-return').style.display='none';
+    dgView=false;
   }
-  updateLabels();
-});
-canvas.addEventListener('mousemove',e=>{
-  const {x,y}=canvasCoords(e);
-  cursorX=x; cursorY=y;
-  if(painting) paintAt(x,y);
-  updateLabels(); redraw();
-});
-canvas.addEventListener('mouseup',()=>painting=false);
-canvas.addEventListener('mouseleave',()=>painting=false);
-canvas.addEventListener('contextmenu',e=>e.preventDefault());
+}
+// Monkey-patch loadCur
+loadCur=loadCurWrapped;
 
-// Zoom
-document.getElementById('canvas-wrap').addEventListener('wheel',e=>{
-  e.preventDefault();
-  if(e.deltaY<0) zoom=Math.min(zoom+1,8);
-  else zoom=Math.max(zoom-1,1);
-  updateLabels(); redraw();
-},{passive:false});
+// Override selectMap to exit dungeon view when switching maps
+const _origSelectMap=selectMap;
+selectMap=function(i){
+  if(dgView){dgView=false;}
+  _origSelectMap(i);
+};
 
-// ======================================================================
-// Input: keyboard
-// ======================================================================
-document.addEventListener('keydown',e=>{
-  // Don't intercept when typing in inputs
-  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+// Override redraw to handle dungeon view
+const _origRedraw=redraw;
+redraw=function(){
+  if(dgView){redrawDungeon();return;}
+  _origRedraw();
+};
 
-  switch(e.key){
-    case 'ArrowLeft':  cursorX=Math.max(0,cursorX-1); e.preventDefault(); break;
-    case 'ArrowRight': cursorX=Math.min(mapW-1,cursorX+1); e.preventDefault(); break;
-    case 'ArrowUp':    cursorY=Math.max(0,cursorY-1); e.preventDefault(); break;
-    case 'ArrowDown':  cursorY=Math.min(mapH-1,cursorY+1); e.preventDefault(); break;
-    case ' ':          paintAt(cursorX,cursorY); e.preventDefault(); break;
-    case '1': selectTile(0); buildPalette(); break;
-    case '2': selectTile(1); buildPalette(); break;
-    case '3': selectTile(2); buildPalette(); break;
-    case '4': selectTile(3); buildPalette(); break;
-    case '5': selectTile(4); buildPalette(); break;
-    case '6': selectTile(5); buildPalette(); break;
-    case '7': selectTile(6); buildPalette(); break;
-    case '8': selectTile(7); buildPalette(); break;
-    case '9': selectTile(8); buildPalette(); break;
-    case '0': selectTile(9); buildPalette(); break;
-    case '+': case '=': zoom=Math.min(zoom+1,8); break;
-    case '-': zoom=Math.max(zoom-1,1); break;
+// ======== FILE I/O ========
+function getProjectBlob(){
+  saveCur();proj.maps.forEach(m=>{ensureColl(m);if(m.rooms)m.rooms.forEach(r=>ensureRoomColl(r));});proj.version=5;
+  return new Blob([JSON.stringify(proj,null,2)],{type:'application/json'});
+}
+async function doSave(){
+  const blob=getProjectBlob();
+  if(fileHandle){
+    try{const wr=await fileHandle.createWritable();await wr.write(blob);await wr.close();return;}catch(e){}
   }
-  // Scroll cursor into view
-  const wrap=document.getElementById('canvas-wrap');
-  const cx=cursorX*TILE_SIZE*zoom, cy=cursorY*TILE_SIZE*zoom;
-  const ts=TILE_SIZE*zoom;
-  if(cx<wrap.scrollLeft) wrap.scrollLeft=cx;
-  if(cx+ts>wrap.scrollLeft+wrap.clientWidth) wrap.scrollLeft=cx+ts-wrap.clientWidth;
-  if(cy<wrap.scrollTop) wrap.scrollTop=cy;
-  if(cy+ts>wrap.scrollTop+wrap.clientHeight) wrap.scrollTop=cy+ts-wrap.clientHeight;
-
-  updateLabels(); redraw();
-});
-
-// ======================================================================
-// Save / Load (JSON)
-// ======================================================================
-function buildProjectData(){
-  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-  if(isDungeon) saveCurrentRoom();
-  return {
-    version:2,
-    mapType,
-    mapName,
-    ...(isDungeon ? {rooms:rooms.map(r=>({w:r.w,h:r.h,tiles:r.tiles,name:r.name})),currentRoom} : {mapW,mapH,tiles}),
-  };
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='windgame.wgp';a.click();
 }
-
-function saveProject(){
-  const data=buildProjectData();
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`${sanitizeId(mapName)}.json`;
-  a.click();
+async function doSaveAs(){
+  const blob=getProjectBlob();
+  if(window.showSaveFilePicker){
+    try{
+      const opts={suggestedName:'windgame.wgp',types:[{description:'WindGame Project',accept:{'application/json':['.wgp']}}]};
+      if(defaultDirHandle) opts.startIn=defaultDirHandle;
+      const handle=await window.showSaveFilePicker(opts);
+      fileHandle=handle;const wr=await handle.createWritable();await wr.write(blob);await wr.close();return;
+    }catch(e){if(e.name==='AbortError')return;}
+  }
+  const name=prompt('Save filename:','windgame.wgp');if(!name)return;
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
 }
-
-function loadProject(){
-  document.getElementById('fileInput').click();
+async function setDefaultDir(){
+  if(!window.showDirectoryPicker){alert('Directory picker not supported. Use Chrome/Edge.');return;}
+  try{defaultDirHandle=await window.showDirectoryPicker({mode:'readwrite'});alert('Default dir: '+defaultDirHandle.name);
+  }catch(e){if(e.name!=='AbortError')alert('Error: '+e.message);}
 }
-function handleLoad(e){
-  const file=e.target.files[0]; if(!file) return;
+function openProject(){document.getElementById('fileInput').click();}
+function handleOpen(e){
+  const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=ev=>{
-    try {
-      const data=JSON.parse(ev.target.result);
-      if(data.version!==1&&data.version!==2){alert('Unknown file version');return;}
-      mapType=data.mapType||'overworld';
-      mapName=data.mapName||'untitled';
-      document.getElementById('mapType').value=mapType;
-      document.getElementById('mapName').value=mapName;
-
-      const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-      document.getElementById('dungeon-panel').style.display=isDungeon?'block':'none';
-      document.getElementById('fixed-transitions').style.display=mapType==='dungeon_fixed'?'block':'none';
-
-      if(isDungeon&&data.rooms){
-        rooms=data.rooms.map(r=>({w:r.w,h:r.h,tiles:r.tiles.slice(),name:r.name}));
-        currentRoom=data.currentRoom||0;
-        loadRoomIntoEditor(currentRoom);
-        buildRoomTabs(); buildTransitions();
-      } else {
-        mapW=data.mapW; mapH=data.mapH; tiles=data.tiles.slice();
-        rooms=[]; currentRoom=0;
-        document.getElementById('mapW').value=mapW;
-        document.getElementById('mapH').value=mapH;
-      }
-      cursorX=0; cursorY=0;
-      updateLabels(); redraw();
-    } catch(err){ alert('Failed to load: '+err.message); }
-  };
-  reader.readAsText(file);
-  e.target.value='';
+    try{const d=JSON.parse(ev.target.result);
+      if(d.version>=3){proj=d;
+        proj.maps.forEach(m=>{ensureColl(m);
+          if(m.rooms)m.rooms.forEach(r=>ensureRoomColl(r));
+          // Migrate spawn zone configs to group format
+          if(m.spawnZones){for(const z in m.spawnZones)m.spawnZones[z]=migrateZoneConfig(m.spawnZones[z]);}
+        });
+        proj.version=5;}
+      else if(d.version<=2){proj={version:5,maps:[],manifest:{}};
+        if(d.rooms){const tiles=d.rooms[0].tiles.slice();
+          proj.maps.push({name:d.mapName||'imported',w:d.rooms[0].w,h:d.rooms[0].h,tiles,collisionLayer:genColl(tiles),npcs:[],
+            rooms:d.rooms.map(r=>{const t=r.tiles.slice();return{w:r.w,h:r.h,tiles:t,collisionLayer:genColl(t),name:r.name};}),currentRoom:0});
+        }else{const tiles=d.tiles.slice();proj.maps.push({name:d.mapName||'imported',w:d.mapW,h:d.mapH,tiles,collisionLayer:genColl(tiles),npcs:[]});}}
+      else{alert('Unknown version');return;}
+      active=proj.maps.length>0?0:-1;fileHandle=null;rebuild();
+    }catch(err){alert('Error: '+err.message);}};
+  reader.readAsText(file);e.target.value='';
 }
 
-// ======================================================================
-// Export to C header
-// ======================================================================
-function tilesRowStr(arr,w,y){
-  let s='';
-  for(let x=0;x<w;x++){
-    s+=arr[y*w+x];
-    if(x<w-1) s+=',';
-  }
-  return s;
-}
-
+// ======== C EXPORT ========
 function exportC(){
-  const isDungeon=mapType==='dungeon_fixed'||mapType==='dungeon_random';
-  if(isDungeon) saveCurrentRoom();
-  const base=sanitizeId(mapName);
+  saveCur();let o='';
+  o+=`/*==========================================================================\n * maps_data.h — Auto-generated by WindGame Project Editor v5\n *\n * MANIFEST:\n`;
+  ROLES.forEach(r=>{o+=` *   ${r.key.padEnd(18)} = ${proj.manifest[r.key]||'(none)'}\n`;});
+  o+=` *\n * Collision layer separate from tile data.\n * Environment layer on overworld determines action map tileset.\n *==========================================================================*/\n\n`;
+  o+=`#ifndef MAPS_DATA_H\n#define MAPS_DATA_H\n\n#include <stdint.h>\n\n`;
+  // Collision flags
+  o+=`/* Collision type ID -> game flag */\n#define COLL_NUM_TYPES ${NUM_COLL}\nstatic const uint8_t coll_to_flag[COLL_NUM_TYPES] = {\n`;
+  COLL_TYPES.forEach((ct,i)=>{o+=`    /* ${i}: ${ct.name.padEnd(12)} */ 0x${ct.flag.toString(16).padStart(2,'0')}${i<NUM_COLL-1?',':''}\n`;});
+  o+=`};\n\n`;
+  // Environment types
+  o+=`/* Environment types */\n#define ENV_NUM_TYPES ${NUM_ENV}\n`;
+  ENV_TYPES.forEach(et=>{o+=`#define ENV_${et.name.toUpperCase()} ${et.id}\n`;});
+  o+=`\n/* Environment-sensitive tile IDs */\n#define ENV_SENSITIVE_COUNT ${ENV_SENSITIVE_TILES.length}\nstatic const uint8_t env_sensitive_tiles[ENV_SENSITIVE_COUNT] = {${ENV_SENSITIVE_TILES.join(',')}};\n\n`;
+  // Environment palettes (color pairs per tile per env)
+  o+=`/* Environment palette remaps: env_palette[env_id][tile_id][0..1] = {c0,c1} */\n`;
+  o+=`/* 0xFF,0xFF means no remap (use default) */\n`;
+  o+=`static const uint8_t env_palette[ENV_NUM_TYPES][${NUM_TILES}][2] = {\n`;
+  for(let e=0;e<NUM_ENV;e++){
+    o+=`    /* ${ENV_TYPES[e].name} */ {\n`;
+    for(let t=0;t<NUM_TILES;t++){
+      const pal=ENV_PALETTE[e]||{};
+      if(pal[t]){o+=`        {0x${pal[t][0].toString(16).padStart(2,'0')},0x${pal[t][1].toString(16).padStart(2,'0')}},`;}
+      else{o+=`        {0xFF,0xFF},`;}
+      o+=` /* ${TILE_NAMES[t]} */\n`;
+    }
+    o+=`    },\n`;
+  }
+  o+=`};\n\n`;
 
-  let out='';
-  out+=`/*==========================================================================\n`;
-  out+=` * Auto-generated by HAL Engine Map Editor\n`;
-  out+=` * Map: "${mapName}"  Type: ${mapType}\n`;
-  out+=` *==========================================================================*/\n\n`;
-
-  if(isDungeon){
-    // Export each room using its name
-    rooms.forEach((r,i)=>{
-      const tag=`${base}_${sanitizeId(r.name)}`;
-      out+=`#define ${tag.toUpperCase()}_W ${r.w}\n`;
-      out+=`#define ${tag.toUpperCase()}_H ${r.h}\n`;
-      out+=`static const uint8_t ${tag}[${r.h} * ${r.w}] = {\n`;
-      for(let y=0;y<r.h;y++){
-        out+=tilesRowStr(r.tiles,r.w,y);
-        out+=(y<r.h-1)?',\n':'\n';
+  // Maps
+  proj.maps.forEach(m=>{const b=san(m.name);ensureColl(m);
+    if(m.rooms){
+      m.rooms.forEach(r=>{ensureRoomColl(r);const t=b+'_'+san(r.name);
+        o+=`#define ${t.toUpperCase()}_W ${r.w}\n#define ${t.toUpperCase()}_H ${r.h}\n`;
+        o+=`static const uint8_t ${t}[${r.h}*${r.w}] = {\n`;
+        for(let y=0;y<r.h;y++){let s='';for(let x=0;x<r.w;x++)s+=(r.tiles[y*r.w+x]||0)+(x<r.w-1?',':'');o+=s+(y<r.h-1?',':'')+'\n';}
+        o+=`};\nstatic const uint8_t ${t}_coll[${r.h}*${r.w}] = {\n`;
+        for(let y=0;y<r.h;y++){let s='';for(let x=0;x<r.w;x++)s+=(r.collisionLayer[y*r.w+x]||0)+(x<r.w-1?',':'');o+=s+(y<r.h-1?',':'')+'\n';}
+        o+=`};\n\n`;});
+      o+=`#define ${b.toUpperCase()}_POOL_SIZE ${m.rooms.length}\nstatic const dungeon_room_def_t ${b}_pool[${b.toUpperCase()}_POOL_SIZE] = {\n`;
+      m.rooms.forEach(r=>{const t=b+'_'+san(r.name);let bx=32,by=6*16,fx=(r.w-3)*16,fy=6*16;
+        for(let y=0;y<r.h;y++)for(let x=0;x<r.w;x++){if(r.tiles[y*r.w+x]===9){if(x<=1){bx=32;by=y*16;}if(x>=r.w-2){fx=(r.w-3)*16;fy=y*16;}}}
+        o+=`    { ${t}, ${t}_coll, ${t.toUpperCase()}_W, ${t.toUpperCase()}_H, ${bx},${by}, ${fx},${fy} },\n`;});
+      o+=`};\n\n`;
+      // Export transitions if any
+      if(m.transitions&&m.transitions.length>0){
+        o+=`/* Transition bindings for ${b} */\n`;
+        o+=`#define ${b.toUpperCase()}_TRANS_COUNT ${m.transitions.length}\n`;
+        o+=`typedef struct { uint8_t from_room, to_room; uint8_t from_tx, from_ty, to_tx, to_ty; } dungeon_transition_t;\n`;
+        o+=`static const dungeon_transition_t ${b}_transitions[${b.toUpperCase()}_TRANS_COUNT] = {\n`;
+        m.transitions.forEach(tr=>{
+          o+=`    { ${tr.fromRoom}, ${tr.toRoom}, ${tr.fromTx},${tr.fromTy}, ${tr.toTx},${tr.toTy} },\n`;
+        });
+        o+=`};\n\n`;
       }
-      out+=`};\n\n`;
-    });
+    } else {
+      o+=`#define ${b.toUpperCase()}_W ${m.w}\n#define ${b.toUpperCase()}_H ${m.h}\n`;
+      o+=`static const uint8_t ${b}[${m.h}*${m.w}] = {\n`;
+      for(let y=0;y<m.h;y++){let s='';for(let x=0;x<m.w;x++)s+=(m.tiles[y*m.w+x]||0)+(x<m.w-1?',':'');o+=s+(y<m.h-1?',':'')+'\n';}
+      o+=`};\nstatic const uint8_t ${b}_coll[${m.h}*${m.w}] = {\n`;
+      for(let y=0;y<m.h;y++){let s='';for(let x=0;x<m.w;x++)s+=(m.collisionLayer[y*m.w+x]||0)+(x<m.w-1?',':'');o+=s+(y<m.h-1?',':'')+'\n';}
+      o+=`};\n\n`;
+      // Environment layer export
+      if(m.envLayer&&m.envLayer.some(v=>v>0)){
+        o+=`static const uint8_t ${b}_env[${m.h}*${m.w}] = {\n`;
+        for(let y=0;y<m.h;y++){let s='';for(let x=0;x<m.w;x++)s+=(m.envLayer[y*m.w+x]||0)+(x<m.w-1?',':'');o+=s+(y<m.h-1?',':'')+'\n';}
+        o+=`};\n\n`;
+      }
+      if(m.npcs&&m.npcs.length>0){
+        o+=`#define ${b.toUpperCase()}_NPC_COUNT ${m.npcs.length}\n`;
+        o+=`static const int16_t ${b}_npc_x[${b.toUpperCase()}_NPC_COUNT] = {${m.npcs.map(n=>n.tx+'*16').join(',')}};\n`;
+        o+=`static const int16_t ${b}_npc_y[${b.toUpperCase()}_NPC_COUNT] = {${m.npcs.map(n=>'('+n.ty+'-1)*16').join(',')}};\n`;
+        o+=`static const uint8_t ${b}_npc_type[${b.toUpperCase()}_NPC_COUNT] = {${m.npcs.map(n=>'FRIENDLY_'+n.type.toUpperCase()).join(',')}};\n\n`;
+      }
+    }});
+  // Manifest bindings
+  o+=`/*==========================================================================\n * MANIFEST BINDINGS\n *==========================================================================*/\n\n`;
+  ROLES.forEach(role=>{const mn=proj.manifest[role.key];if(!mn)return;const b=san(mn),m=proj.maps.find(x=>x.name===mn);
+    if(role.key==='dungeon_rooms'){o+=`/* ${role.label} -> ${mn} */\n#define MANIFEST_DUNGEON_POOL       ${b}_pool\n#define MANIFEST_DUNGEON_POOL_SIZE  ${b.toUpperCase()}_POOL_SIZE\n\n`;}
+    else{o+=`/* ${role.label} -> ${mn} */\n#define MANIFEST_${role.key.toUpperCase()}_MAP  ${b}\n#define MANIFEST_${role.key.toUpperCase()}_COLL ${b}_coll\n`;
+      o+=`#define MANIFEST_${role.key.toUpperCase()}_W    ${b.toUpperCase()}_W\n#define MANIFEST_${role.key.toUpperCase()}_H    ${b.toUpperCase()}_H\n`;
+      if(m&&m.envLayer&&m.envLayer.some(v=>v>0)){o+=`#define MANIFEST_${role.key.toUpperCase()}_ENV  ${b}_env\n`;}
+      if(m&&m.npcs&&m.npcs.length>0){o+=`#define MANIFEST_${role.key.toUpperCase()}_NPC_COUNT ${b.toUpperCase()}_NPC_COUNT\n#define MANIFEST_${role.key.toUpperCase()}_NPC_X    ${b}_npc_x\n#define MANIFEST_${role.key.toUpperCase()}_NPC_Y    ${b}_npc_y\n#define MANIFEST_${role.key.toUpperCase()}_NPC_TYPE ${b}_npc_type\n`;}
+      o+='\n';}});
+  o+=`#endif /* MAPS_DATA_H */\n`;
 
-    // Room pool definition
-    out+=`/* Room pool: ${mapName} (${rooms.length} rooms) */\n`;
-    out+=`#define ${base.toUpperCase()}_ROOM_COUNT ${rooms.length}\n`;
-    out+=`static const dungeon_room_def_t ${base}_room_pool[${base.toUpperCase()}_ROOM_COUNT] = {\n`;
-    rooms.forEach((r,i)=>{
-      const tag=`${base}_${sanitizeId(r.name)}`;
-      // Find transition tile positions for entry_back (leftmost 9) and entry_fwd (rightmost 9)
-      let backX=2*16,backY=Math.floor(r.h/2)*16;
-      let fwdX=(r.w-3)*16,fwdY=Math.floor(r.h/2)*16;
-      for(let y=0;y<r.h;y++) for(let x=0;x<r.w;x++){
-        if(r.tiles[y*r.w+x]===9){
-          if(x<=1){backX=2*16;backY=y*16;}
-          if(x>=r.w-2){fwdX=(r.w-3)*16;fwdY=y*16;}
+  // Spawn zones with groups
+  const owName=proj.manifest['overworld'],owMap=owName?proj.maps.find(x=>x.name===owName):null;
+  if(owMap&&owMap.spawnLayer&&owMap.spawnLayer.some(v=>v>0)){
+    o+=`\n/*==========================================================================\n * SPAWN ZONES (group-based)\n *==========================================================================*/\n\n`;
+    o+=`#define SPAWN_LAYER_W ${owMap.w}\n#define SPAWN_LAYER_H ${owMap.h}\n#define SPAWN_ZONE_COUNT ${MAX_ZONES}\n#define SPAWN_GROUP_COUNT ${SPAWN_GROUP_TYPES.length}\n\n`;
+    o+=`static const uint8_t spawn_layer[${owMap.h}*${owMap.w}] = {\n`;
+    for(let y=0;y<owMap.h;y++){let s='';for(let x=0;x<owMap.w;x++)s+=(owMap.spawnLayer[y*owMap.w+x]||0)+(x<owMap.w-1?',':'');o+=s+(y<owMap.h-1?',':'')+'\n';}
+    o+=`};\n\n`;
+    // Group type enum
+    o+=`enum spawn_group_type {\n`;
+    SPAWN_GROUP_TYPES.forEach((g,i)=>{o+=`    SPAWN_GRP_${g.toUpperCase()} = ${i},\n`;});
+    o+=`};\n\n`;
+    o+=`typedef struct {\n    const char *name;\n    uint8_t prob;\n    uint8_t map_count;\n    const char **maps; /* array of map name strings */\n} spawn_group_t;\n\n`;
+    o+=`typedef struct {\n    const char *name;\n    spawn_group_t groups[SPAWN_GROUP_COUNT];\n} spawn_zone_def_t;\n\n`;
+    // Emit map name string arrays per zone per group
+    ensureSpawnLayer(owMap);
+    for(let z=1;z<=MAX_ZONES;z++){
+      const cfg=owMap.spawnZones[z]||defaultZoneConfig();
+      cfg.groups.forEach((grp,gi)=>{
+        if(grp.maps.length>0){
+          o+=`static const char *sz${z}_g${gi}_maps[${grp.maps.length}] = {${grp.maps.map(m=>'"'+m+'"').join(',')}};\n`;
         }
-      }
-      out+=`    { ${tag}, ${tag.toUpperCase()}_W, ${tag.toUpperCase()}_H, ${backX},${backY}, ${fwdX},${fwdY} }, /* ${r.name} */\n`;
-    });
-    out+=`};\n\n`;
-
-    if(mapType==='dungeon_fixed'){
-      out+=`/* Fixed dungeon order: ${rooms.map(r=>r.name).join(' → ')} */\n`;
-      out+=`#define ${base.toUpperCase()}_SIZE ${rooms.length}\n`;
-      out+=`static const uint8_t ${base}_order[${base.toUpperCase()}_SIZE] = { `;
-      out+=rooms.map((_,i)=>i).join(', ');
-      out+=` };\n`;
+      });
     }
-  } else {
-    // Single map export using map name
-    out+=`#define ${base.toUpperCase()}_W ${mapW}\n`;
-    out+=`#define ${base.toUpperCase()}_H ${mapH}\n`;
-    out+=`static const uint8_t ${base}[${mapH} * ${mapW}] = {\n`;
-    for(let y=0;y<mapH;y++){
-      out+=tilesRowStr(tiles,mapW,y);
-      out+=(y<mapH-1)?',\n':'\n';
+    o+=`\nstatic const spawn_zone_def_t spawn_zones[SPAWN_ZONE_COUNT+1] = {\n`;
+    o+=`    { "", { ${SPAWN_GROUP_TYPES.map(()=>'{"",0,0,0}').join(',')} } },\n`;
+    for(let z=1;z<=MAX_ZONES;z++){
+      const cfg=owMap.spawnZones[z]||defaultZoneConfig();
+      o+=`    { "${cfg.name||'zone_'+z}", {\n`;
+      cfg.groups.forEach((grp,gi)=>{
+        const mapsRef=grp.maps.length>0?`sz${z}_g${gi}_maps`:'0';
+        o+=`        {"${grp.name}",${grp.prob},${grp.maps.length},${mapsRef}},\n`;
+      });
+      o+=`    } },\n`;
     }
-    out+=`};\n`;
+    o+=`};\n`;
   }
 
-  // Download
-  const blob=new Blob([out],{type:'text/plain'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=`${base}.h`;
-  a.click();
+  // Write file
+  if(window.showSaveFilePicker){
+    (async()=>{try{
+      const opts={suggestedName:'maps_data.h',types:[{description:'C Header',accept:{'text/plain':['.h']}}]};
+      if(defaultDirHandle) opts.startIn=defaultDirHandle;
+      const h=await window.showSaveFilePicker(opts);
+      const wr=await h.createWritable();await wr.write(o);await wr.close();
+    }catch(e){if(e.name!=='AbortError'){const blob=new Blob([o],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='maps_data.h';a.click();}}})();
+  } else {const blob=new Blob([o],{type:'text/plain'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='maps_data.h';a.click();}
 }
 
-// ======================================================================
-// Init
-// ======================================================================
-initTiles();
-buildPalette();
-switchMapType();
+function rebuild(){rebuildList();rebuildManifest();if(active>=0)loadCur();else redraw();}
+initTiles();initNpcSprites();buildTilePalette();buildCollisionPalette();
+active=-1;rebuild();
 </script>
 </body>
 </html>

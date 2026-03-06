@@ -67,6 +67,7 @@ static uint32_t s_frame_start_ms;
 /* Input — now 16-bit */
 static uint16_t s_input_current;
 static uint16_t s_input_previous;
+static uint8_t  s_last_key_pressed; /* key_id_t of most recent key press */
 static SDL_GameController *s_gamepad;
 
 /* Sprites */
@@ -189,7 +190,7 @@ int hal_init(void) {
      *------------------------------------------------------------------*/
     {
         /* Base colors for each tile type (RRRGGGBB) */
-        static const uint8_t tile_colors[10] = {
+        static const uint8_t tile_colors[14] = {
             0x0C,  /* 0: dark green   000 011 00 */
             0x6D,  /* 1: grey         011 011 01 */
             0x88,  /* 2: red-brown    100 010 00 */
@@ -200,9 +201,13 @@ int hal_init(void) {
             0xAD,  /* 7: tan          101 011 01 */
             0x03,  /* 8: exit - dark blue-green */
             0x5F,  /* 9: transition - purple   */
+            0x13,  /* 10: water - blue         */
+            0xFC,  /* 11: town - yellow        */
+            0x08,  /* 12: hidden - dark green  */
+            0x24,  /* 13: forest - green       */
         };
         /* Slightly lighter variant for dithering */
-        static const uint8_t tile_colors_hi[10] = {
+        static const uint8_t tile_colors_hi[14] = {
             0x10,  /* 0 */
             0xB6,  /* 1 */
             0xCC,  /* 2 */
@@ -213,9 +218,13 @@ int hal_init(void) {
             0xED,  /* 7 */
             0x17,  /* 8: exit lighter */
             0x9F,  /* 9: transition lighter */
+            0x1B,  /* 10: water lighter */
+            0xFD,  /* 11: town lighter */
+            0x0C,  /* 12: hidden lighter */
+            0x28,  /* 13: forest lighter */
         };
         int t, px, py;
-        for (t = 0; t < 10; t++) {
+        for (t = 0; t < 14; t++) {
             uint8_t c0 = tile_colors[t];
             uint8_t c1 = tile_colors_hi[t];
             for (py = 0; py < TILE_SIZE; py++) {
@@ -269,6 +278,41 @@ int hal_init(void) {
                             c = c0;  /* threshold */
                         else
                             c = 0x00; /* dark interior */
+                    }
+                    /* Water: wavy surface with darker below */
+                    if (t == 10) {
+                        if (py <= 2)
+                            c = 0x1B; /* surface highlight */
+                        else if (py <= 4 && ((px + py) & 3) == 0)
+                            c = 0x1B; /* wave crests */
+                        else
+                            c = (py > 10) ? 0x03 : c; /* deep water darker */
+                    }
+                    /* Town: building shape with door (overworld only — cleared in action) */
+                    if (t == 11) {
+                        if (py <= 3 && px >= 3 && px <= 12)
+                            c = 0xFC; /* roof */
+                        else if (py > 3 && py <= 12 && (px == 3 || px == 12))
+                            c = 0xE8; /* walls */
+                        else if (py >= 10 && px >= 6 && px <= 9)
+                            c = 0x64; /* door */
+                        else if (py > 3 && py < 10 && px > 3 && px < 12)
+                            c = 0xED; /* wall fill */
+                    }
+                    /* Hidden area: dark with subtle glow */
+                    if (t == 12) {
+                        if ((px + py * 3) % 7 == 0)
+                            c = 0x0C; /* sparse glow dots */
+                        else
+                            c = (py < 4) ? 0x04 : 0x00;
+                    }
+                    /* Forest: tree shapes (overworld only — cleared in action) */
+                    if (t == 13) {
+                        int cx2 = px - 7, cy2 = py - 4;
+                        if (cx2*cx2 + cy2*cy2 <= 20)
+                            c = 0x24; /* canopy */
+                        else if (px >= 6 && px <= 9 && py >= 10)
+                            c = 0x64; /* trunk */
                     }
                     s_tile_patterns[t][py * TILE_SIZE + px] = c;
                 }
@@ -443,6 +487,58 @@ int hal_init(void) {
                 if (py >= 13 && py <= 15 && px >= 8 && px <= 12)
                     c = 0x09;
                 s_sprite_patterns[3][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 10: Merchant — gold/brown figure with bag */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py >= 2 && py <= 5 && px >= 5 && px <= 10) c = 0xA8; /* brown head */
+                if (py == 3 && (px == 6 || px == 9)) c = 0xFF;
+                if (py >= 6 && py <= 12 && px >= 4 && px <= 11) c = 0xE8; /* gold body */
+                if (py >= 8 && py <= 11 && px >= 11 && px <= 14) c = 0x64; /* bag */
+                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xA4;
+                s_sprite_patterns[10][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 11: Healer — white/green figure with cross */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py >= 2 && py <= 5 && px >= 5 && px <= 10) c = 0xB6; /* light head */
+                if (py == 3 && (px == 6 || px == 9)) c = 0x0C;
+                if (py >= 6 && py <= 12 && px >= 4 && px <= 11) c = 0xFF; /* white robe */
+                if (py >= 7 && py <= 9 && px == 7) c = 0x10; /* cross vert */
+                if (py == 8 && px >= 6 && px <= 8) c = 0x10; /* cross horiz */
+                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xB6;
+                s_sprite_patterns[11][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 12: Sage — purple/dark figure with pointed hat */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py == 0 && px >= 7 && px <= 8) c = 0x5F; /* hat tip */
+                if (py == 1 && px >= 6 && px <= 9) c = 0x5F;
+                if (py >= 2 && py <= 3 && px >= 5 && px <= 10) c = 0x5F; /* hat brim */
+                if (py >= 4 && py <= 6 && px >= 5 && px <= 10) c = 0x9F; /* face */
+                if (py == 5 && (px == 6 || px == 9)) c = 0xFF;
+                if (py >= 7 && py <= 12 && px >= 4 && px <= 11) c = 0x5F; /* purple robe */
+                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x53;
+                s_sprite_patterns[12][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 13: Wanderer — brown/green travel cloak */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py >= 1 && py <= 2 && px >= 6 && px <= 9) c = 0x64; /* hood */
+                if (py >= 3 && py <= 5 && px >= 5 && px <= 10) c = 0xAD; /* face */
+                if (py == 4 && (px == 6 || px == 9)) c = 0xFF;
+                if (py >= 6 && py <= 13 && px >= 3 && px <= 12) c = 0x0C; /* green cloak */
+                if (py >= 6 && py <= 13 && px >= 5 && px <= 10) c = 0x64; /* inner brown */
+                if (py >= 14 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x64;
+                s_sprite_patterns[13][py * SPRITE_W + px] = c;
             }
         }
     }
@@ -799,6 +895,20 @@ uint16_t hal_input_poll(void) {
     }
 
     s_input_current = state;
+
+    /* Detect last key pressed (for rebind UI) — scan all key IDs */
+    s_last_key_pressed = KEY_ID_NONE;
+    {
+        static uint8_t prev_keys[KEY_ID_COUNT];
+        uint8_t k;
+        for (k = 1; k < KEY_ID_COUNT; k++) {
+            int sc = s_keyid_to_sdl[k];
+            uint8_t down = (sc && keys[sc]) ? 1 : 0;
+            if (down && !prev_keys[k]) s_last_key_pressed = k;
+            prev_keys[k] = down;
+        }
+    }
+
     return state;
 }
 
@@ -808,6 +918,10 @@ uint16_t hal_input_pressed(void) {
 
 uint16_t hal_input_released(void) {
     return ~s_input_current & s_input_previous;
+}
+
+uint8_t hal_input_last_key(void) {
+    return s_last_key_pressed;
 }
 
 /*--------------------------------------------------------------------------
