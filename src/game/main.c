@@ -319,6 +319,9 @@ typedef struct {
     uint16_t w, h;
     int16_t entry_back_x, entry_back_y;
     int16_t entry_fwd_x, entry_fwd_y;
+    const char *name;          /* room display name */
+    const char *label_back;    /* entry point label: back/left */
+    const char *label_fwd;     /* entry point label: forward/right */
 } dungeon_room_def_t;
 
 #define DR_W 20
@@ -411,12 +414,12 @@ static const uint8_t droom_f[DR_H*DR2_W]={
 
 #define DUNGEON_ROOM_POOL_SIZE 6
 static const dungeon_room_def_t room_pool[DUNGEON_ROOM_POOL_SIZE] = {
-    { droom_a, DR_W,  DR_H,  2*16,3*16,  18*16,6*16 },
-    { droom_b, DR2_W, DR_H,  2*16,2*16,  22*16,6*16 },
-    { droom_c, DR3_W, DR_H,  2*16,2*16,  14*16,6*16 },
-    { droom_d, DR_W,  DR_H,  2*16,2*16,  18*16,2*16 },
-    { droom_e, DR_W,  DR_H,  2*16,2*16,  18*16,6*16 },
-    { droom_f, DR2_W, DR_H,  2*16,3*16,  22*16,6*16 },
+    { droom_a, DR_W,  DR_H,  2*16,3*16,  18*16,6*16, "room_a","left_door","right_ladder" },
+    { droom_b, DR2_W, DR_H,  2*16,2*16,  22*16,6*16, "room_b","west_entry","east_exit" },
+    { droom_c, DR3_W, DR_H,  2*16,2*16,  14*16,6*16, "room_c","left_gate","right_gate" },
+    { droom_d, DR_W,  DR_H,  2*16,2*16,  18*16,2*16, "room_d","left_high","right_high" },
+    { droom_e, DR_W,  DR_H,  2*16,2*16,  18*16,6*16, "room_e","west_cage","east_exit" },
+    { droom_f, DR2_W, DR_H,  2*16,3*16,  22*16,6*16, "room_f","left_hall","right_hall" },
 };
 
 #define FIXED_DUNGEON_SIZE 4
@@ -844,6 +847,8 @@ static void placed_ladder_clear(void);
 static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input);
 static void inventory_init(void);
 static void bag_input(uint16_t pressed);
+static void action_clear_ow_tiles(void);
+static void ow_restore_tiles(void);
 
 /* Overworld-only tile IDs: road(7), town(11), forest(13).
    In action mode, tile 7 is repurposed as ice (keeps its pattern).
@@ -894,11 +899,6 @@ static void ow_restore_tiles(void) {
     ow_tiles_build();
     hal_tiles_load(s_ow_tile_town,   11, 1);
     hal_tiles_load(s_ow_tile_forest, 13, 1);
-}
-
-static void action_clear_ow_tiles(void) {
-    hal_tiles_load(s_blank_tile, 11, 1);  /* blank town */
-    hal_tiles_load(s_blank_tile, 13, 1);  /* blank forest */
 }
 
 static void action_init(void){
@@ -1469,9 +1469,10 @@ static uint8_t s_keybind_waiting;
 static uint8_t s_debug_menu;
 static uint8_t s_debug_cursor;
 static uint8_t s_debug_scroll;  /* scroll offset for long lists */
-static uint8_t s_debug_level;   /* 0=main, 1=sub-category, 2=sub-sub */
+static uint8_t s_debug_level;   /* 0=main, 1=sub-cat, 2=sub-sub, 3=room pick, 4=entry pick */
 static uint8_t s_debug_cat;     /* which category in level 1 */
 static uint8_t s_debug_sub;     /* which item in level 2 (dungeon room etc) */
+static uint8_t s_debug_room;    /* selected room index for dungeon spawn */
 
 /* Main menu items */
 #define DMENU_LOAD_MAP    0
@@ -1510,30 +1511,46 @@ static const debug_action_entry_t debug_actions[NUM_DEBUG_ACTIONS]={
     {"Dungeon Entry",  ACTION_REASON_DUNGEON_RANDOM,MAP_EVENT_DUNGEON_RANDOM,0,0},
 };
 
+/* Entry point options per room */
+#define DENTRY_BACK  0
+#define DENTRY_FWD   1
+#define DENTRY_COUNT 2
+
 #define DEBUG_VISIBLE_ROWS 13  /* max rows visible at once */
 
 static uint8_t debug_list_count(void){
     if(s_debug_level==0) return DMAIN_ITEMS;
     if(s_debug_level==1) return DCAT_COUNT;
-    /* level 2: items in selected category */
-    switch(s_debug_cat){
-        case DCAT_WORLD:   return NUM_WORLD_MAPS;
-        case DCAT_ACTION:  return NUM_DEBUG_ACTIONS;
-        case DCAT_DUNGEON: return 2; /* fixed, random — expand later */
-        case DCAT_EVENT:   return 1; /* placeholder */
-        default: return 0;
+    if(s_debug_level==2){
+        switch(s_debug_cat){
+            case DCAT_WORLD:   return NUM_WORLD_MAPS;
+            case DCAT_ACTION:  return NUM_DEBUG_ACTIONS;
+            case DCAT_DUNGEON: return DUNGEON_ROOM_POOL_SIZE;
+            case DCAT_EVENT:   return 1;
+            default: return 0;
+        }
     }
+    if(s_debug_level==3) return DENTRY_COUNT; /* entry point selection */
+    return 0;
 }
 static const char *debug_list_label(uint8_t i){
     if(s_debug_level==0) return (i<DMAIN_ITEMS)?dmain_labels[i]:"?";
     if(s_debug_level==1) return (i<DCAT_COUNT)?dcat_labels[i]:"?";
-    switch(s_debug_cat){
-        case DCAT_WORLD:   return (i<NUM_WORLD_MAPS)?world_maps[i].name:"?";
-        case DCAT_ACTION:  return (i<NUM_DEBUG_ACTIONS)?debug_actions[i].name:"?";
-        case DCAT_DUNGEON: return (i==0)?"Fixed Dungeon":"Random Dungeon";
-        case DCAT_EVENT:   return "Traveling Event";
-        default: return "?";
+    if(s_debug_level==2){
+        switch(s_debug_cat){
+            case DCAT_WORLD:   return (i<NUM_WORLD_MAPS)?world_maps[i].name:"?";
+            case DCAT_ACTION:  return (i<NUM_DEBUG_ACTIONS)?debug_actions[i].name:"?";
+            case DCAT_DUNGEON: return (i<DUNGEON_ROOM_POOL_SIZE)?room_pool[i].name:"?";
+            case DCAT_EVENT:   return "Traveling Event";
+            default: return "?";
+        }
     }
+    if(s_debug_level==3){
+        const dungeon_room_def_t *r=&room_pool[s_debug_room];
+        if(i==DENTRY_BACK) return r->label_back;
+        if(i==DENTRY_FWD) return r->label_fwd;
+    }
+    return "?";
 }
 
 static void debug_draw(void){
@@ -1542,6 +1559,7 @@ static void debug_draw(void){
     hal_draw_rect(12,6,232,182,0x00);hal_draw_rect(14,8,228,178,0x02);
     if(s_debug_level==0) title="== DEBUG ==";
     else if(s_debug_level==1) title="LOAD MAP";
+    else if(s_debug_level==3) title="ENTRY POINT";
     else title=dcat_labels[s_debug_cat];
     hal_draw_text(64,10,title,0xFF);
     for(i=0;i<DEBUG_VISIBLE_ROWS&&(i+s_debug_scroll)<count;i++){
@@ -1610,15 +1628,36 @@ static void debug_input(uint16_t pressed){
                 if(a->reason==ACTION_REASON_COMBAT){s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=a->enemy_type;}
                 s_scene=SCENE_ACTION;return;}
             case DCAT_DUNGEON:
-                if(s_debug_cursor==0){s_action_reason=ACTION_REASON_DUNGEON_FIXED;s_map_event_type=MAP_EVENT_DUNGEON_FIXED;}
-                else{s_action_reason=ACTION_REASON_DUNGEON_RANDOM;s_map_event_type=MAP_EVENT_DUNGEON_RANDOM;}
-                s_scene=SCENE_ACTION;return;
+                /* Selected a room — go to entry point selection */
+                s_debug_room=s_debug_cursor;
+                s_debug_level=3;s_debug_cursor=0;s_debug_scroll=0;
+                s_debug_menu=1;s_force_reinit=0;return;
             case DCAT_EVENT:
                 /* Trigger a traveling event combat */
                 s_action_reason=ACTION_REASON_COMBAT;s_map_event_type=MAP_EVENT_FIELD;
                 s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=EVENT_ENEMY_MEDIUM;
                 s_scene=SCENE_ACTION;return;
             }
+        }
+        else if(s_debug_level==3){
+            /* Selected an entry point in a dungeon room — spawn directly */
+            s_debug_menu=0;s_force_reinit=1;
+            {const dungeon_room_def_t *r=&room_pool[s_debug_room];
+            int16_t ex,ey;
+            if(s_debug_cursor==DENTRY_BACK){ex=r->entry_back_x;ey=r->entry_back_y;}
+            else{ex=r->entry_fwd_x;ey=r->entry_fwd_y;}
+            /* Load the room as a standalone action map */
+            hal_sprite_hide_all();s_action_npc_count=0;
+            action_clear_ow_tiles();
+            hal_tilemap_set(r->map,r->w,r->h);
+            s_act_map_w=r->w;s_act_map_h=r->h;s_act_map_name=r->name;
+            s_action_reason=ACTION_REASON_DUNGEON_FIXED;s_map_event_type=MAP_EVENT_FIELD;
+            s_player.x=ex;s_player.y=ey-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
+            s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;
+            s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;s_player.crouching=0;
+            s_player.dir=0;s_player.frame=0;s_player.invuln=0;s_camera_x=0;
+            s_in_building=0;
+            s_scene=SCENE_ACTION;return;}
         }
     }
 }

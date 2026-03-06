@@ -190,7 +190,7 @@ int hal_init(void) {
      *------------------------------------------------------------------*/
     {
         /* Base colors for each tile type (RRRGGGBB) */
-        static const uint8_t tile_colors[14] = {
+        static const uint8_t tile_colors[26] = {
             0x0C,  /* 0: dark green   000 011 00 */
             0x6D,  /* 1: grey         011 011 01 */
             0x88,  /* 2: red-brown    100 010 00 */
