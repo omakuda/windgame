@@ -510,17 +510,28 @@ static dungeon_state_t s_dungeon;
 /*----------------------------------------------------------------------
  * Vertical physics (fixed-point 8.8)
  *
- * Jump clears ~2 tiles. Gravity is higher for snappier jumps.
- * Near apex, gravity reduces for hangtime feel.
- * Fast-fall kicks in hard once descending for responsive landings.
+ * Ported from Zelda 2 disassembly (NES 60fps → adapted to ~50fps).
+ *
+ * Z2 uses a gravity counter that overflows to increment vspeed:
+ *   gravity_counter += gravity_value  (each frame)
+ *   on overflow (>255): vspeed += 1
+ *
+ * Z2 normal gravity value = $48 (72): 72/256 = 0.281 px/frame² at 60fps.
+ * Z2 held-A gravity value = $30 (48): 48/256 = 0.188 px/frame² at 60fps.
+ * Z2 jump impulse = -4 (4.4 fixed) = -4 px/frame at 60fps.
+ * Z2 terminal velocity = 5 (4.4 fixed) = 5 px/frame.
+ * Z2 max walk speed = $18 (24 in 4.4) = 1.5 px/frame.
+ * Z2 walk accel = 1 per frame (4.4) = 0.0625 px/frame².
+ *
+ * Conversion: 8.8 fixed = value * 256; 50fps scale = 60/50 = 1.2x.
  *----------------------------------------------------------------------*/
-#define FY_GRAV        130    /* normal gravity: ~0.51 px/frame²  (was 100)  */
-#define FY_GRAV_APEX   48     /* apex gravity:   ~0.19 px/frame²  (was 36)   */
-#define FY_APEX_ZONE   160    /* |vel_fy| threshold for hangtime  (was 192)  */
-#define FY_JUMP       (-1500) /* jump impulse: ~5.86 px/frame     (was -1400)*/
-#define FY_MAX_FALL    2400   /* terminal velocity: ~9.4 px/frame (was 2200) */
-#define FY_FAST_FALL   90     /* extra gravity when descending    (was 50)   */
+#define FY_GRAV         86    /* Z2 normal gravity: 72 * (60/50) ≈ 86       */
+#define FY_GRAV_HELD    57    /* Z2 held-A gravity: 48 * (60/50) ≈ 57       */
+#define FY_JUMP       (-1230) /* Z2 jump: -4 * 256 * (60/50) ≈ -1230       */
+#define FY_MAX_FALL    1535   /* Z2 terminal: 5 * 256 * (60/50) ≈ 1535     */
 #define FY_CLIMB       512    /* ladder speed: 2 px/frame                    */
+#define LAND_CROUCH_THRESHOLD  1280  /* Z2: vspeed >= 5 → crouch (5*256)   */
+#define LAND_CROUCH_FRAMES     8     /* Z2: 8 frame crouch on hard landing  */
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
  * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
@@ -533,20 +544,19 @@ static dungeon_state_t s_dungeon;
 /*----------------------------------------------------------------------
  * Horizontal momentum (fixed-point 8.8)
  *
- * Max speed = 2 px/frame = 512 in 8.8.
- * Ramp-up in ~0.2s = 10 frames at 50 Hz.
- * Accel  = 512 / 10 ≈ 52 per frame.
- * Decel (friction) is slightly faster so the player stops crisply.
- * NOTE: no directional penalty — acceleration is symmetric in both
- * directions to prevent any perceived left/right asymmetry.
+ * Z2 walk: accel +1/frame in 4.4 = +16 in 8.8 → at 50fps: ~19.
+ * Z2 max speed: $18 (24) in 4.4 = 1.5 px/frame = 384 in 8.8 → at 50fps: ~461.
+ * Z2 decel: instant stop when no input on ground (no slide).
+ * Z2 air control: same accel as ground (full air control).
+ * Z2 wall collision: velocity zeroed immediately.
  *----------------------------------------------------------------------*/
 #define FX_SHIFT       8
 #define FX_ONE         (1 << FX_SHIFT)           /* 256  */
-#define FX_MAX_SPEED   (MOVE_SPEED * FX_ONE)     /* 512  */
-#define FX_ACCEL       52                         /* reach max in ~10 frames */
-#define FX_DECEL       64                         /* stop in ~8 frames */
-#define FX_AIR_ACCEL   32                         /* air accel (was accel/2) */
-#define FX_AIR_MAX_BASE  384                      /* minimum air speed cap (1.5px/f) */
+#define FX_MAX_SPEED   461                        /* Z2 max: 1.5px * 256 * 1.2 */
+#define FX_ACCEL       19                         /* Z2 accel: 16 * 1.2 */
+#define FX_DECEL       9999                       /* Z2: instant stop on ground */
+#define FX_AIR_ACCEL   19                         /* Z2: same as ground */
+#define FX_AIR_MAX_BASE  461                      /* Z2: full speed in air */
 #define FX_TO_PX(v)    ((int16_t)((v) / FX_ONE))  /* symmetric toward-zero truncation */
 
 /*==========================================================================
@@ -943,10 +953,14 @@ static void action_update(uint16_t input,uint16_t pressed){
         if(s_player.vel_fx>air_max)s_player.vel_fx=air_max;
         s_player.dir=0;
     }else{
-        /* Friction: decelerate toward zero (slower on ice, reduced in air) */
-        int16_t dec=on_ice?(FX_DECEL/4):(!s_player.on_ground?(FX_DECEL/2):FX_DECEL);
-        if(s_player.vel_fx>0){s_player.vel_fx-=dec;if(s_player.vel_fx<0)s_player.vel_fx=0;}
-        else if(s_player.vel_fx<0){s_player.vel_fx+=dec;if(s_player.vel_fx>0)s_player.vel_fx=0;}
+        /* Z2-style: instant stop on ground (no slide), gradual in air */
+        if(s_player.on_ground&&!on_ice){
+            s_player.vel_fx=0;
+        } else {
+            int16_t dec=on_ice?(FX_ACCEL/4):(FX_ACCEL/2);
+            if(s_player.vel_fx>0){s_player.vel_fx-=dec;if(s_player.vel_fx<0)s_player.vel_fx=0;}
+            else if(s_player.vel_fx<0){s_player.vel_fx+=dec;if(s_player.vel_fx>0)s_player.vel_fx=0;}
+        }
     }
     s_player.vel_x=FX_TO_PX(s_player.vel_fx);
     /* Fix: sub-pixel velocities must still produce 1px/frame movement.
@@ -1007,10 +1021,13 @@ static void action_update(uint16_t input,uint16_t pressed){
         if((pressed&INPUT_JUMP)&&s_player.on_ground&&!s_player.crouching){
             s_player.jump_vel_fx=s_player.vel_fx; /* capture for air speed cap */
             s_player.vel_fy=FY_JUMP;s_player.on_ground=0;}
-        /* Hangtime: reduced gravity near apex; fast-fall when descending */
-        {int16_t abs_vfy=s_player.vel_fy; if(abs_vfy<0)abs_vfy=-abs_vfy;
-         int16_t grav=(abs_vfy<FY_APEX_ZONE)?FY_GRAV_APEX:FY_GRAV;
-         if(s_player.vel_fy>0)grav+=FY_FAST_FALL; /* fall faster off platforms/after apex */
+        /* Z2-style gravity: lower gravity while jump button held and rising.
+         * Normal gravity otherwise. No apex zone or fast-fall — just two rates. */
+        {int16_t grav;
+         if(s_player.vel_fy<0 && (input&INPUT_JUMP))
+             grav=FY_GRAV_HELD;  /* holding jump while rising → floatier */
+         else
+             grav=FY_GRAV;       /* normal gravity (falling or not holding) */
          s_player.vel_fy+=grav;
          if(s_player.vel_fy>FY_MAX_FALL)s_player.vel_fy=FY_MAX_FALL;}
         s_player.vel_y=FX_TO_PX(s_player.vel_fy);
