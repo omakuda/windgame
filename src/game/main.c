@@ -83,15 +83,23 @@ static uint8_t box_hits_flag(int16_t bx, int16_t by, uint8_t bw, uint8_t bh, uin
 }
 
 /*==========================================================================
- * MAPS -- OVERWORLD  (40 x 30 tiles, 4x area of original)
- * 0=grass  1=wall  7=path(safe)  9=dungeon entrance (transition tile)
+ * MAPS -- OVERWORLD
+ * Multiple world maps supported. worldmap01 is the main map.
+ * Additional maps can be added for testing features.
  *==========================================================================*/
 
-#define OW_MAP_W   40
-#define OW_MAP_H   30
 #define OW_PATH_TILE  7
 
-static const uint8_t overworld_map[OW_MAP_H * OW_MAP_W] = {
+/* World map descriptor */
+typedef struct {
+    const uint8_t *data;
+    uint16_t w, h;
+    const char *name;
+} world_map_t;
+
+#define WORLDMAP01_W   40
+#define WORLDMAP01_H   30
+static const uint8_t worldmap01_data[WORLDMAP01_H * WORLDMAP01_W] = {
 /* r 0*/ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
 /* r 1*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
 /* r 2*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,1,
@@ -123,6 +131,35 @@ static const uint8_t overworld_map[OW_MAP_H * OW_MAP_W] = {
 /*r28*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
 /*r29*/ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
 };
+
+/* Test world map — small 20x15, for testing features */
+#define WORLDMAP_TEST_W  20
+#define WORLDMAP_TEST_H  15
+static const uint8_t worldmap_test_data[WORLDMAP_TEST_H * WORLDMAP_TEST_W] = {
+1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,7,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,7,7,7,0,0,0,11,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,9,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,13,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+};
+
+/* World map registry — all available overworld maps */
+#define NUM_WORLD_MAPS 2
+static const world_map_t world_maps[NUM_WORLD_MAPS] = {
+    { worldmap01_data, WORLDMAP01_W, WORLDMAP01_H, "worldmap01" },
+    { worldmap_test_data, WORLDMAP_TEST_W, WORLDMAP_TEST_H, "test_map" },
+};
+static uint8_t s_cur_world_map = 0; /* index into world_maps[] */
 
 /*==========================================================================
  * FIELD ACTION MAPS -- exit tiles (8) on L/R borders
@@ -601,9 +638,10 @@ static const char *safe_zone_name(safe_zone_type_t st) {
 static uint8_t s_ow_frame_toggle;  /* alternates 0/1 each frame for 75% speed */
 
 static void overworld_init(void) {
+    const world_map_t *wm=&world_maps[s_cur_world_map];
     hal_sprite_hide_all();
     ow_restore_tiles(); /* reload town/forest tile patterns after action cleared them */
-    hal_tilemap_set(overworld_map, OW_MAP_W, OW_MAP_H);
+    hal_tilemap_set(wm->data, wm->w, wm->h);
     s_player.x=s_ow_player_x; s_player.y=s_ow_player_y;
     s_player.vel_x=0; s_player.vel_y=0; s_player.vel_fx=0; s_player.vel_fy=0; s_player.dir=0;
     s_player.on_ground=0; s_player.attacking=0; s_player.frame=0;
@@ -616,12 +654,13 @@ static void overworld_init(void) {
      /* Try to spawn a traveling event on re-entry */
      events_try_spawn_traveling(s_immune_tx,s_immune_ty);
     }
-    events_init(overworld_map,OW_MAP_W,OW_MAP_H,OW_PATH_TILE,&SPAWN_TABLE_DEFAULT);
+    events_init(wm->data,wm->w,wm->h,OW_PATH_TILE,&SPAWN_TABLE_DEFAULT);
 }
 
 static void overworld_update_camera(void) {
-    int16_t max_x=(int16_t)(OW_MAP_W*TILE_SIZE)-SCREEN_W;
-    int16_t max_y=(int16_t)(OW_MAP_H*TILE_SIZE)-SCREEN_H;
+    const world_map_t *wm=&world_maps[s_cur_world_map];
+    int16_t max_x=(int16_t)(wm->w*TILE_SIZE)-SCREEN_W;
+    int16_t max_y=(int16_t)(wm->h*TILE_SIZE)-SCREEN_H;
     /* Centre camera on the 8x8 visual centre of the player */
     s_ow_cam_x=s_player.x+OW_PLAYER_OFFSET+OW_PLAYER_SIZE/2-SCREEN_W/2;
     s_ow_cam_y=s_player.y+OW_PLAYER_OFFSET+OW_PLAYER_SIZE/2-SCREEN_H/2;
@@ -631,6 +670,7 @@ static void overworld_update_camera(void) {
 }
 
 static void overworld_update(uint16_t input, uint16_t pressed) {
+    const world_map_t *wm=&world_maps[s_cur_world_map];
     int16_t nx,ny; encounter_t enc;
     int16_t spd;
     if(s_friendly_dialog){if(pressed&INPUT_BTN1){friendly_apply_effect(s_last_encounter.friendly_type);s_friendly_dialog=0;}return;}
@@ -648,8 +688,8 @@ static void overworld_update(uint16_t input, uint16_t pressed) {
     if(!box_hits_flag(s_player.x+OW_PLAYER_OFFSET,ny+OW_PLAYER_OFFSET,OW_PLAYER_SIZE,OW_PLAYER_SIZE,TILE_SOLID))s_player.y=ny;
 
     if(s_player.x<0)s_player.x=0; if(s_player.y<0)s_player.y=0;
-    if(s_player.x>(OW_MAP_W*TILE_SIZE)-SPRITE_W)s_player.x=(OW_MAP_W*TILE_SIZE)-SPRITE_W;
-    if(s_player.y>(OW_MAP_H*TILE_SIZE)-SPRITE_H)s_player.y=(OW_MAP_H*TILE_SIZE)-SPRITE_H;
+    if(s_player.x>(wm->w*TILE_SIZE)-SPRITE_W)s_player.x=(wm->w*TILE_SIZE)-SPRITE_W;
+    if(s_player.y>(wm->h*TILE_SIZE)-SPRITE_H)s_player.y=(wm->h*TILE_SIZE)-SPRITE_H;
 
     /* Check for permanent locations (tile 9=dungeon, 11=town, 12=hidden, 13=forest) */
     {int16_t cx=s_player.x+OW_PLAYER_OFFSET+OW_PLAYER_SIZE/2;
@@ -657,8 +697,8 @@ static void overworld_update(uint16_t input, uint16_t pressed) {
      uint16_t tx=(uint16_t)(cx/TILE_SIZE),ty=(uint16_t)(cy/TILE_SIZE);
      /* Clear immunity when player leaves the immune tile */
      if(s_immune_active&&(tx!=s_immune_tx||ty!=s_immune_ty))s_immune_active=0;
-     if(!s_immune_active&&tx<OW_MAP_W&&ty<OW_MAP_H){
-        uint8_t ot=overworld_map[ty*OW_MAP_W+tx];
+     if(!s_immune_active&&tx<wm->w&&ty<wm->h){
+        uint8_t ot=wm->data[ty*wm->w+tx];
         if(ot==9){
             s_ow_player_x=s_player.x;s_ow_player_y=s_player.y;
             s_action_reason=ACTION_REASON_DUNGEON_FIXED;s_map_event_type=MAP_EVENT_DUNGEON_FIXED;
@@ -1424,96 +1464,161 @@ static uint8_t s_keybind_cursor;
 static uint8_t s_keybind_waiting;
 
 /*==========================================================================
- * DEBUG MENU — expanded with map name display and sub-selection
+ * DEBUG MENU — hierarchical with load sub-menus and scrolling
  *==========================================================================*/
 static uint8_t s_debug_menu;
 static uint8_t s_debug_cursor;
-#define DEBUG_ITEMS 14
-static const char *debug_labels[DEBUG_ITEMS]={
-    "Combat: Weak","Combat: Medium","Combat: Strong",
-    "Safe: Lone NPC","Safe: Caravan","Safe: Oasis Town","Discovery",
-    "Dungeon Fixed","Dungeon Random","Dungeon Entry",
-    "Back to Overworld","Controls","Heal Full","Exit Game"
+static uint8_t s_debug_scroll;  /* scroll offset for long lists */
+static uint8_t s_debug_level;   /* 0=main, 1=sub-category, 2=sub-sub */
+static uint8_t s_debug_cat;     /* which category in level 1 */
+static uint8_t s_debug_sub;     /* which item in level 2 (dungeon room etc) */
+
+/* Main menu items */
+#define DMENU_LOAD_MAP    0
+#define DMENU_BACK_OW     1
+#define DMENU_CONTROLS    2
+#define DMENU_HEAL        3
+#define DMENU_EXIT        4
+#define DMAIN_ITEMS       5
+static const char *dmain_labels[DMAIN_ITEMS]={
+    "Load Map...","Back to Overworld","Controls","Heal Full","Exit Game"
 };
-/* Map name table for debug display */
-#define MAP_COMBAT_COUNT 2
-static const char *map_combat_names[MAP_COMBAT_COUNT]={"combat","tough"};
-static const uint8_t *map_combat_ptrs[MAP_COMBAT_COUNT]={field_map_combat,field_map_tough};
-static const uint16_t map_combat_w[MAP_COMBAT_COUNT]={FIELD_COMBAT_W,FIELD_TOUGH_W};
-static const uint16_t map_combat_h[MAP_COMBAT_COUNT]={FIELD_COMBAT_H,FIELD_TOUGH_H};
-static uint8_t s_debug_map_sub=0; /* sub-index within a map type */
+
+/* Load sub-categories */
+#define DCAT_WORLD    0
+#define DCAT_ACTION   1
+#define DCAT_DUNGEON  2
+#define DCAT_EVENT    3
+#define DCAT_COUNT    4
+static const char *dcat_labels[DCAT_COUNT]={
+    "World Maps","Action Maps","Dungeons","Events"
+};
+
+/* Action map registry for debug loading */
+typedef struct { const char *name; uint8_t reason; uint8_t map_type; uint8_t safe_type; uint8_t enemy_type; } debug_action_entry_t;
+#define NUM_DEBUG_ACTIONS 10
+static const debug_action_entry_t debug_actions[NUM_DEBUG_ACTIONS]={
+    {"Combat: Weak",   ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_WEAK},
+    {"Combat: Medium", ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_MEDIUM},
+    {"Combat: Strong", ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_STRONG},
+    {"Safe: Lone NPC", ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_LONE_CHARACTER,0},
+    {"Safe: Caravan",  ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_CARAVAN,0},
+    {"Safe: Oasis",    ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_OASIS_TOWN,0},
+    {"Discovery",      ACTION_REASON_DISCOVERY, MAP_EVENT_FIELD,0,0},
+    {"Dungeon Fixed",  ACTION_REASON_DUNGEON_FIXED,MAP_EVENT_DUNGEON_FIXED,0,0},
+    {"Dungeon Random", ACTION_REASON_DUNGEON_RANDOM,MAP_EVENT_DUNGEON_RANDOM,0,0},
+    {"Dungeon Entry",  ACTION_REASON_DUNGEON_RANDOM,MAP_EVENT_DUNGEON_RANDOM,0,0},
+};
+
+#define DEBUG_VISIBLE_ROWS 13  /* max rows visible at once */
+
+static uint8_t debug_list_count(void){
+    if(s_debug_level==0) return DMAIN_ITEMS;
+    if(s_debug_level==1) return DCAT_COUNT;
+    /* level 2: items in selected category */
+    switch(s_debug_cat){
+        case DCAT_WORLD:   return NUM_WORLD_MAPS;
+        case DCAT_ACTION:  return NUM_DEBUG_ACTIONS;
+        case DCAT_DUNGEON: return 2; /* fixed, random — expand later */
+        case DCAT_EVENT:   return 1; /* placeholder */
+        default: return 0;
+    }
+}
+static const char *debug_list_label(uint8_t i){
+    if(s_debug_level==0) return (i<DMAIN_ITEMS)?dmain_labels[i]:"?";
+    if(s_debug_level==1) return (i<DCAT_COUNT)?dcat_labels[i]:"?";
+    switch(s_debug_cat){
+        case DCAT_WORLD:   return (i<NUM_WORLD_MAPS)?world_maps[i].name:"?";
+        case DCAT_ACTION:  return (i<NUM_DEBUG_ACTIONS)?debug_actions[i].name:"?";
+        case DCAT_DUNGEON: return (i==0)?"Fixed Dungeon":"Random Dungeon";
+        case DCAT_EVENT:   return "Traveling Event";
+        default: return "?";
+    }
+}
 
 static void debug_draw(void){
-    uint8_t i;
+    uint8_t i, count=debug_list_count();
+    const char *title;
     hal_draw_rect(12,6,232,182,0x00);hal_draw_rect(14,8,228,178,0x02);
-    hal_draw_text(64,10,"== DEBUG ==",0xFF);
-    for(i=0;i<DEBUG_ITEMS;i++){
-        uint8_t col=(i==s_debug_cursor)?0xFC:0xFF;
-        hal_draw_text(24,22+(int16_t)i*11,debug_labels[i],col);
+    if(s_debug_level==0) title="== DEBUG ==";
+    else if(s_debug_level==1) title="LOAD MAP";
+    else title=dcat_labels[s_debug_cat];
+    hal_draw_text(64,10,title,0xFF);
+    for(i=0;i<DEBUG_VISIBLE_ROWS&&(i+s_debug_scroll)<count;i++){
+        uint8_t idx=i+s_debug_scroll;
+        uint8_t col=(idx==s_debug_cursor)?0xFC:0xFF;
+        hal_draw_text(24,24+(int16_t)i*11,debug_list_label(idx),col);
+        if(idx==s_debug_cursor) hal_draw_text(16,24+(int16_t)i*11,">",0xE0);
     }
-    /* Show map sub-selection for combat items */
-    if(s_debug_cursor<=2){
-        hal_draw_text(150,22+(int16_t)s_debug_cursor*11,"<",0xE0);
-        if(s_debug_cursor==2)
-            hal_draw_text(160,22+(int16_t)s_debug_cursor*11,map_combat_names[1],0xE0);
-        else
-            hal_draw_text(160,22+(int16_t)s_debug_cursor*11,
-                map_combat_names[s_debug_map_sub%MAP_COMBAT_COUNT],0xE0);
-        hal_draw_text(208,22+(int16_t)s_debug_cursor*11,">",0xE0);
-    }
-    hal_draw_text(24,178,"Up/Dn=Sel Jump=Go L/R=Map",0xAD);
+    /* Scroll indicators */
+    if(s_debug_scroll>0) hal_draw_text(120,16,"^ more ^",0xAD);
+    if(s_debug_scroll+DEBUG_VISIBLE_ROWS<count) hal_draw_text(110,24+(int16_t)DEBUG_VISIBLE_ROWS*11,"v more v",0xAD);
+    /* Footer */
+    if(s_debug_level>0) hal_draw_text(24,178,"Btn2=Back  Jump=Select",0xAD);
+    else hal_draw_text(24,178,"Up/Dn=Sel  Jump=Select",0xAD);
 }
+
+static void debug_ensure_scroll(void){
+    uint8_t count=debug_list_count();
+    if(s_debug_cursor>=count&&count>0) s_debug_cursor=count-1;
+    if(s_debug_cursor<s_debug_scroll) s_debug_scroll=s_debug_cursor;
+    if(s_debug_cursor>=s_debug_scroll+DEBUG_VISIBLE_ROWS) s_debug_scroll=s_debug_cursor-DEBUG_VISIBLE_ROWS+1;
+}
+
 static void debug_input(uint16_t pressed){
-    if(pressed&INPUT_UP){if(s_debug_cursor>0){s_debug_cursor--;s_debug_map_sub=0;}}
-    if(pressed&INPUT_DOWN){if(s_debug_cursor<DEBUG_ITEMS-1){s_debug_cursor++;s_debug_map_sub=0;}}
-    if(pressed&INPUT_LEFT){if(s_debug_map_sub>0)s_debug_map_sub--;}
-    if(pressed&INPUT_RIGHT){
-        if(s_debug_cursor<=1&&s_debug_map_sub<MAP_COMBAT_COUNT-1)s_debug_map_sub++;
+    uint8_t count=debug_list_count();
+    if(pressed&INPUT_UP){if(s_debug_cursor>0)s_debug_cursor--;debug_ensure_scroll();}
+    if(pressed&INPUT_DOWN){if(s_debug_cursor<count-1)s_debug_cursor++;debug_ensure_scroll();}
+
+    /* Back button */
+    if(pressed&INPUT_BTN2){
+        if(s_debug_level>0){s_debug_level--;s_debug_cursor=0;s_debug_scroll=0;return;}
     }
+
     if(pressed&INPUT_JUMP){
-        s_debug_menu=0;s_force_reinit=1;
-        switch(s_debug_cursor){
-        case 0: /* combat weak — pick map by sub */
-            s_action_reason=ACTION_REASON_COMBAT;s_map_event_type=MAP_EVENT_FIELD;
-            s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=EVENT_ENEMY_WEAK;
-            s_scene=SCENE_ACTION;break;
-        case 1: /* combat medium */
-            s_action_reason=ACTION_REASON_COMBAT;s_map_event_type=MAP_EVENT_FIELD;
-            s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=EVENT_ENEMY_MEDIUM;
-            s_scene=SCENE_ACTION;break;
-        case 2: /* combat strong */
-            s_action_reason=ACTION_REASON_COMBAT;s_map_event_type=MAP_EVENT_FIELD;
-            s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=EVENT_ENEMY_STRONG;
-            s_scene=SCENE_ACTION;break;
-        case 3: /* safe lone */
-            s_action_reason=ACTION_REASON_SAFE;s_map_event_type=MAP_EVENT_FIELD;
-            s_safe_type=SAFE_LONE_CHARACTER;s_scene=SCENE_ACTION;break;
-        case 4: /* safe caravan */
-            s_action_reason=ACTION_REASON_SAFE;s_map_event_type=MAP_EVENT_FIELD;
-            s_safe_type=SAFE_CARAVAN;s_scene=SCENE_ACTION;break;
-        case 5: /* safe oasis */
-            s_action_reason=ACTION_REASON_SAFE;s_map_event_type=MAP_EVENT_FIELD;
-            s_safe_type=SAFE_OASIS_TOWN;s_scene=SCENE_ACTION;break;
-        case 6: /* discovery */
-            s_action_reason=ACTION_REASON_DISCOVERY;s_map_event_type=MAP_EVENT_FIELD;
-            s_scene=SCENE_ACTION;break;
-        case 7: /* dungeon fixed */
-            s_action_reason=ACTION_REASON_DUNGEON_FIXED;s_map_event_type=MAP_EVENT_DUNGEON_FIXED;
-            s_scene=SCENE_ACTION;break;
-        case 8: /* dungeon random */
-            s_action_reason=ACTION_REASON_DUNGEON_RANDOM;s_map_event_type=MAP_EVENT_DUNGEON_RANDOM;
-            s_scene=SCENE_ACTION;break;
-        case 9: /* dungeon entry room directly */
-            s_action_reason=ACTION_REASON_DUNGEON_RANDOM;s_map_event_type=MAP_EVENT_DUNGEON_RANDOM;
-            s_scene=SCENE_ACTION;break;
-        case 10: /* back to overworld */
-            s_force_reinit=0;s_scene=SCENE_OVERWORLD;break;
-        case 11: /* controls */
-            s_force_reinit=0;s_keybind_editor=1;s_keybind_cursor=0;s_keybind_waiting=0;break;
-        case 12: /* heal */
-            s_force_reinit=0;s_player.hp=PLAYER_START_HP;s_debug_menu=0;break;
-        case 13: /* exit game */
-            hal_shutdown();exit(0);break;
+        if(s_debug_level==0){
+            switch(s_debug_cursor){
+            case DMENU_LOAD_MAP:
+                s_debug_level=1;s_debug_cursor=0;s_debug_scroll=0;return;
+            case DMENU_BACK_OW:
+                s_debug_menu=0;s_force_reinit=0;s_scene=SCENE_OVERWORLD;return;
+            case DMENU_CONTROLS:
+                s_debug_menu=0;s_force_reinit=0;s_keybind_editor=1;s_keybind_cursor=0;s_keybind_waiting=0;return;
+            case DMENU_HEAL:
+                s_force_reinit=0;s_player.hp=PLAYER_START_HP;s_debug_menu=0;return;
+            case DMENU_EXIT:
+                hal_shutdown();exit(0);return;
+            }
+        }
+        else if(s_debug_level==1){
+            /* Selected a category — go to level 2 */
+            s_debug_cat=s_debug_cursor;s_debug_level=2;s_debug_cursor=0;s_debug_scroll=0;return;
+        }
+        else if(s_debug_level==2){
+            /* Selected a specific map/item */
+            s_debug_menu=0;s_force_reinit=1;
+            switch(s_debug_cat){
+            case DCAT_WORLD:
+                /* Load a world map */
+                s_cur_world_map=s_debug_cursor;
+                s_ow_player_x=2*TILE_SIZE;s_ow_player_y=2*TILE_SIZE;
+                s_force_reinit=0;s_scene=SCENE_OVERWORLD;return;
+            case DCAT_ACTION:{
+                const debug_action_entry_t *a=&debug_actions[s_debug_cursor];
+                s_action_reason=a->reason;s_map_event_type=a->map_type;
+                if(a->reason==ACTION_REASON_SAFE)s_safe_type=a->safe_type;
+                if(a->reason==ACTION_REASON_COMBAT){s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=a->enemy_type;}
+                s_scene=SCENE_ACTION;return;}
+            case DCAT_DUNGEON:
+                if(s_debug_cursor==0){s_action_reason=ACTION_REASON_DUNGEON_FIXED;s_map_event_type=MAP_EVENT_DUNGEON_FIXED;}
+                else{s_action_reason=ACTION_REASON_DUNGEON_RANDOM;s_map_event_type=MAP_EVENT_DUNGEON_RANDOM;}
+                s_scene=SCENE_ACTION;return;
+            case DCAT_EVENT:
+                /* Trigger a traveling event combat */
+                s_action_reason=ACTION_REASON_COMBAT;s_map_event_type=MAP_EVENT_FIELD;
+                s_last_encounter.kind=ENCOUNTER_COMBAT;s_last_encounter.enemy_type=EVENT_ENEMY_MEDIUM;
+                s_scene=SCENE_ACTION;return;
+            }
         }
     }
 }
@@ -1617,7 +1722,7 @@ static void render(void){
     hal_sprites_draw();
 
     if(s_scene==SCENE_OVERWORLD){
-        hal_draw_text(2,2,"OVERWORLD",0xFF);
+        hal_draw_text(2,2,world_maps[s_cur_world_map].name,0xFF);
         switch(events_phase()){
         case PHASE_WAITING:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"Next:",0xFF);hal_draw_number(44,12,(int32_t)(s2+1),0xFF);hal_draw_text(52,12,"s",0xFF);break;}
         case PHASE_SPAWNED:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"x",0xFF);hal_draw_number(10,12,(int32_t)events_count(),0xFF);
@@ -1682,7 +1787,10 @@ int main(void){
         if((pressed&INPUT_MENU)&&!s_bag_open&&!s_friendly_dialog){
             if(s_debug_menu)s_debug_menu=0; else s_paused=!s_paused;}
         /* BTN3 toggles debug menu when paused */
-        if(s_paused&&(pressed&INPUT_BTN3)){s_debug_menu=!s_debug_menu;s_paused=0;}
+        if(s_paused&&(pressed&INPUT_BTN3)){
+            s_debug_menu=!s_debug_menu;
+            if(s_debug_menu){s_debug_level=0;s_debug_cursor=0;s_debug_scroll=0;}
+            s_paused=0;}
         /* BTN2 (K) opens control bind editor from pause menu */
         if(s_paused&&(pressed&INPUT_BTN2)){s_keybind_editor=1;s_keybind_cursor=0;s_keybind_waiting=0;s_paused=0;}
         if(s_keybind_editor){keybind_input(pressed);}

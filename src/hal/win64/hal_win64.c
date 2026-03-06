@@ -575,6 +575,36 @@ int hal_init(void) {
                 s_sprite_patterns[13][py * SPRITE_W + px] = c;
             }
         }
+        /* Pattern 14: Crouch — compact kneeling pose, same colors as action player.
+         * Head compressed into rows 0-3, hunched torso 4-8, folded legs 9-15.
+         * Designed to look like the action player (patterns 2+3) ducking down. */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                /* Hair (compressed) */
+                if (py == 0 && px >= 5 && px <= 10) c = 0x0B;
+                /* Head */
+                if (py >= 1 && py <= 3 && px >= 4 && px <= 11) c = 0x1B;
+                /* Eyes */
+                if (py == 2 && (px == 6 || px == 9)) c = 0xFF;
+                /* Hunched torso — wider, shorter */
+                if (py >= 4 && py <= 8 && px >= 3 && px <= 12) c = 0x13;
+                /* Belt */
+                if (py == 8 && px >= 3 && px <= 12) c = 0x0B;
+                /* Folded legs (kneeling) */
+                if (py >= 9 && py <= 12 && px >= 3 && px <= 12) c = 0x0F;
+                /* Knees protruding slightly */
+                if (py >= 10 && py <= 12 && (px == 2 || px == 13)) c = 0x0F;
+                /* Boots at base */
+                if (py >= 13 && py <= 15 && px >= 2 && px <= 13) c = 0x09;
+                /* Arm holding shield forward */
+                if (py >= 5 && py <= 7 && px >= 12 && px <= 14) c = 0x0B;
+                /* Shield */
+                if (py >= 4 && py <= 8 && px == 14) c = 0x17;
+                if (py >= 4 && py <= 8 && px == 15) c = 0x1F;
+                s_sprite_patterns[14][py * SPRITE_W + px] = c;
+            }
+        }
     }
 
     s_tilemap_data = NULL;
