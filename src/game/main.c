@@ -976,8 +976,9 @@ static void action_update(uint16_t input,uint16_t pressed){
     /* Ladder grab: only grab when pressing UP or DOWN while touching ladder tiles.
      * Once on ladder, ONLY release via JUMP (not by walking off). */
     if(s_player.on_ladder){
-        /* Stay on ladder — release is handled in the jump code below.
-         * Only force-release if completely outside map bounds. */
+        /* Release ladder if player is no longer touching any ladder tile */
+        if(!touching_ladder)
+            s_player.on_ladder=0;
     } else {
         /* Grab ladder only if pressing up/down AND touching ladder */
         if(touching_ladder && (input&(INPUT_UP|INPUT_DOWN)))
