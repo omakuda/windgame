@@ -24,7 +24,7 @@
  * TILE COLLISION TABLE
  *==========================================================================*/
 
-#define NUM_TILE_TYPES  14
+#define NUM_TILE_TYPES  26
 
 static const uint8_t tile_collision[NUM_TILE_TYPES] = {
     /* 0 */ TILE_EMPTY,
@@ -37,10 +37,22 @@ static const uint8_t tile_collision[NUM_TILE_TYPES] = {
     /* 7 */ TILE_EMPTY,        /* path / decoration / ice in action */
     /* 8 */ TILE_EXIT,         /* exit trigger            */
     /* 9 */ TILE_TRANSITION,   /* room transition / dungeon entrance */
-    /*10 */ TILE_WATER,               /* water — passable, bidirectional */
+    /*10 */ TILE_WATER,        /* water — passable, bidirectional */
     /*11 */ TILE_EMPTY,        /* town entrance (overworld only) */
     /*12 */ TILE_EMPTY,        /* hidden area entrance     */
     /*13 */ TILE_EMPTY,        /* forest entrance (overworld only) */
+    /*14 */ TILE_SOLID,        /* brick        */
+    /*15 */ TILE_SOLID,        /* bark         */
+    /*16 */ TILE_SOLID,        /* stone_wall   */
+    /*17 */ TILE_SOLID,        /* wood_plank   */
+    /*18 */ TILE_EMPTY,        /* grass        */
+    /*19 */ TILE_EMPTY,        /* sand         */
+    /*20 */ TILE_SOLID,        /* roof         */
+    /*21 */ TILE_EMPTY,        /* cobblestone  */
+    /*22 */ TILE_EMPTY,        /* dirt         */
+    /*23 */ TILE_SOLID,        /* window       */
+    /*24 */ TILE_EMPTY,        /* world_water (overworld, passable) */
+    /*25 */ TILE_EMPTY,        /* world_road (overworld, passable)  */
 };
 
 static uint8_t tile_flags(uint8_t tile_idx) {

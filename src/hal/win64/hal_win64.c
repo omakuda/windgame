@@ -205,9 +205,21 @@ int hal_init(void) {
             0xFC,  /* 11: town - yellow        */
             0x08,  /* 12: hidden - dark green  */
             0x24,  /* 13: forest - green       */
+            0xC0,  /* 14: brick                */
+            0x64,  /* 15: bark                 */
+            0x92,  /* 16: stone_wall           */
+            0xA4,  /* 17: wood_plank           */
+            0x28,  /* 18: grass                */
+            0xED,  /* 19: sand                 */
+            0xC0,  /* 20: roof                 */
+            0x92,  /* 21: cobblestone          */
+            0x64,  /* 22: dirt                 */
+            0x9F,  /* 23: window               */
+            0x13,  /* 24: world_water          */
+            0xA9,  /* 25: world_road           */
         };
         /* Slightly lighter variant for dithering */
-        static const uint8_t tile_colors_hi[14] = {
+        static const uint8_t tile_colors_hi[26] = {
             0x10,  /* 0 */
             0xB6,  /* 1 */
             0xCC,  /* 2 */
@@ -222,9 +234,21 @@ int hal_init(void) {
             0xFD,  /* 11: town lighter */
             0x0C,  /* 12: hidden lighter */
             0x28,  /* 13: forest lighter */
+            0xE4,  /* 14: brick lighter */
+            0x24,  /* 15: bark lighter  */
+            0xB6,  /* 16: stone_wall lighter */
+            0x64,  /* 17: wood_plank lighter */
+            0x2C,  /* 18: grass lighter */
+            0xE9,  /* 19: sand lighter  */
+            0x80,  /* 20: roof lighter  */
+            0x6D,  /* 21: cobblestone lighter */
+            0x44,  /* 22: dirt lighter  */
+            0xBF,  /* 23: window lighter */
+            0x17,  /* 24: world_water lighter */
+            0xED,  /* 25: world_road lighter */
         };
         int t, px, py;
-        for (t = 0; t < 14; t++) {
+        for (t = 0; t < 26; t++) {
             uint8_t c0 = tile_colors[t];
             uint8_t c1 = tile_colors_hi[t];
             for (py = 0; py < TILE_SIZE; py++) {
@@ -313,6 +337,16 @@ int hal_init(void) {
                             c = 0x24; /* canopy */
                         else if (px >= 6 && px <= 9 && py >= 10)
                             c = 0x64; /* trunk */
+                    }
+                    /* World water (24): tileable seamless wave pattern */
+                    if (t == 24) {
+                        int wave = (px * 3 + py * 7) % 11;
+                        c = (wave < 3) ? 0x1B : (wave < 6) ? 0x17 : (wave < 9) ? 0x13 : 0x03;
+                    }
+                    /* World road (25): tileable packed dirt path */
+                    if (t == 25) {
+                        int noise = (px * 7 + py * 11) % 13;
+                        c = (noise < 3) ? 0xA9 : (noise < 7) ? 0xAD : ((px+py)&1) ? 0xED : 0xE9;
                     }
                     s_tile_patterns[t][py * TILE_SIZE + px] = c;
                 }

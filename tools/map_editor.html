@@ -164,6 +164,11 @@ input[type="file"] { display:none; }
     <span class="sb-btn" onclick="exportC()">Export C</span>
     <span class="sb-btn" onclick="setDefaultDir()">Set Dir</span>
     <br>
+    <div style="margin:4px 0;display:flex;gap:4px;align-items:center">
+      <label style="color:var(--dim);font-size:10px;white-space:nowrap">File:</label>
+      <input id="tbFilename" type="text" value="windgame" style="flex:1;font-size:10px;padding:2px 4px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:2px;min-width:0">
+      <label style="color:var(--dim);font-size:10px;white-space:nowrap;cursor:pointer" title="Auto-increment 4-digit suffix on save"><input type="checkbox" id="cbIncrement" style="vertical-align:middle"> ++</label>
+    </div>
     <span class="sb-btn" onclick="addMap()">+ Map</span>
     <span class="sb-btn" onclick="addDungeon()">+ Dungeon</span>
     <input type="file" id="fileInput" accept=".wgp,.json" onchange="handleOpen(event)">
@@ -178,6 +183,7 @@ input[type="file"] { display:none; }
   <div id="toolbar">
     <span class="lbl">Name:</span>
     <input id="tbName" type="text" oninput="onNameChange()">
+    <span id="dg-hide-controls">
     <span class="lbl">W:</span><input id="tbW" type="number" min="4" max="128" onchange="onResize()">
     <span class="lbl">H:</span><input id="tbH" type="number" min="4" max="64" onchange="onResize()">
     <button onclick="fillBorder()">Border</button>
@@ -194,6 +200,7 @@ input[type="file"] { display:none; }
       <span class="tool-btn" id="toolNpc" onclick="setTool('npc')">👤 NPC</span>
     </div>
     <select id="npcSelect" style="display:none;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onNpcDropdown()"></select>
+    </span>
     <button id="btn-dg-return" onclick="enterDungeonView()">⬅ Dungeon View</button>
   </div>
   <div id="room-tabs-bar"></div>
@@ -238,7 +245,8 @@ const TILE_SIZE=16;
 // ======== TILE DEFINITIONS ========
 const TILE_NAMES=['empty','solid','rock','breakable','platform','ladder','damage','ice',
   'exit','transition','water','town','hidden','forest','brick','bark',
-  'stone_wall','wood_plank','grass','sand','roof','cobblestone','dirt','window'];
+  'stone_wall','wood_plank','grass','sand','roof','cobblestone','dirt','window',
+  'world_water','world_road'];
 const NUM_TILES=TILE_NAMES.length;
 
 const COLL_TYPES=[
@@ -253,7 +261,7 @@ const COLL_TYPES=[
   {id:8,name:'ice',       flag:0x80,color:'#AADDEE',short:'I'},
 ];
 const NUM_COLL=COLL_TYPES.length;
-const TILE_TO_COLL=[0,1,1,1,2,3,4,8,6,7,5,0,0,0,1,1,1,1,0,0,1,0,0,1];
+const TILE_TO_COLL=[0,1,1,1,2,3,4,8,6,7,5,0,0,0,1,1,1,1,0,0,1,0,0,1,0,0];
 
 // ======== ENVIRONMENT SYSTEM ========
 // Environment types for world map overlay -> determines action map tileset
@@ -302,7 +310,8 @@ const ENV_PALETTE = {
 const TC=[[0x0C,0x10],[0x6D,0xB6],[0x88,0xCC],[0xC8,0xE9],[0x64,0xA8],[0xA4,0xE8],
   [0xC0,0xE4],[0xAD,0xED],[0x03,0x17],[0x5F,0x9F],[0x13,0x1B],[0xFC,0xFD],[0x08,0x0C],[0x24,0x28],
   [0xC0,0xE4],[0x64,0x24],
-  [0x92,0xB6],[0xA4,0x64],[0x28,0x2C],[0xED,0xE9],[0xC0,0x80],[0x92,0x6D],[0x64,0x44],[0x9F,0xBF]];
+  [0x92,0xB6],[0xA4,0x64],[0x28,0x2C],[0xED,0xE9],[0xC0,0x80],[0x92,0x6D],[0x64,0x44],[0x9F,0xBF],
+  [0x13,0x17],[0xA9,0xED]];
 
 // tileImg[envId][tileId] = canvas (envId 0=default)
 const tileImgByEnv={};
@@ -337,6 +346,18 @@ function renderTile(t,c0,c1){
     if(t===22){const grain=(px*3+py*5)%7;c=grain<2?c0:grain<4?c1:((px+py)&1)?c0:c1;}
     if(t===23){const isFrameH=(py===0||py===7||py===8||py===15);const isFrameV=(px===0||px===7||px===8||px===15);
       c=isFrameH||isFrameV?0x6D:((px+py)&1)?0xBF:0x9F;}
+    // world_water (24): tileable ocean/river — seamless wave pattern using repeating noise
+    if(t===24){
+      const wave=Math.sin((px*0.8+py*0.4)*0.9)*2+Math.sin((px*0.3+py*1.1)*0.7)*1.5;
+      const bright=wave>1.2?0x1B:wave>0?0x17:wave>-1?0x13:0x03;
+      c=bright;
+    }
+    // world_road (25): tileable packed dirt path — seamless in all directions
+    if(t===25){
+      const noise=(px*7+py*11)%13;
+      const edge=((px+py*3)%9);
+      c=noise<3?0xA9:noise<6?0xAD:edge<2?0xA4:((px+py)&1)?0xED:0xE9;
+    }
     g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
   }
   return cv;
@@ -752,9 +773,36 @@ function updateInfo(){const m=active>=0?proj.maps[active]:null;let tileInfo='Til
   document.getElementById('infoZoom').textContent='Zoom: '+zoom+'×';}
 
 // ======== PALETTES ========
+// Tiles to hide in world map: ladder(5), platform(4), action water(10)
+const WORLD_HIDDEN_TILES=[4,5,10];
+// Tiles to hide in action maps: town(11), forest(13), world_water(24), world_road(25)
+const ACTION_HIDDEN_TILES=[11,13,24,25];
+
+function isWorldMap(){
+  if(active<0)return false;
+  const m=proj.maps[active];if(!m)return false;
+  return proj.manifest['overworld']===m.name;
+}
+function isActionMap(){
+  if(active<0)return false;
+  const m=proj.maps[active];if(!m)return false;
+  // Any dungeon or field/safe/interior role, or a dungeon room
+  if(isDungeon(m))return true;
+  const name=m.name;
+  for(const k in proj.manifest){
+    if(proj.manifest[k]===name&&k!=='overworld')return true;
+  }
+  return false;
+}
+
 function buildTilePalette(){const p=document.getElementById('tile-palette-wrap');p.innerHTML='';
   const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
-  for(let t=0;t<NUM_TILES;t++){const d=document.createElement('div');d.className='tile-list-item'+(t===selTile?' selected':'');
+  const isW=isWorldMap(), isA=isActionMap();
+  for(let t=0;t<NUM_TILES;t++){
+    // Filter tiles based on map context
+    if(isW&&WORLD_HIDDEN_TILES.includes(t))continue;
+    if(isA&&ACTION_HIDDEN_TILES.includes(t))continue;
+    const d=document.createElement('div');d.className='tile-list-item'+(t===selTile?' selected':'');
     const cv=document.createElement('canvas');cv.width=cv.height=16;cv.getContext('2d').drawImage(envTiles[t],0,0);
     const idSpan=document.createElement('span');idSpan.className='tile-id';idSpan.textContent=t;
     const nameSpan=document.createElement('span');nameSpan.className='tile-name';nameSpan.textContent=TILE_NAMES[t];
@@ -823,7 +871,9 @@ canvas.addEventListener('mousemove',e=>{if(active<0)return;const p=cc(e);cx=p.x;
 canvas.addEventListener('mouseup',()=>{painting=false;selDrag=false;});
 canvas.addEventListener('mouseleave',()=>{painting=false;selDrag=false;});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
-document.getElementById('canvas-wrap').addEventListener('wheel',e=>{e.preventDefault();zoom=e.deltaY<0?Math.min(zoom+1,8):Math.max(zoom-1,1);updateInfo();redraw();},{passive:false});
+document.getElementById('canvas-wrap').addEventListener('wheel',e=>{e.preventDefault();
+  if(dgView){dgZoom=e.deltaY<0?Math.min(dgZoom+1,8):Math.max(dgZoom-1,1);redrawDungeon();return;}
+  zoom=e.deltaY<0?Math.min(zoom+1,8):Math.max(zoom-1,1);updateInfo();redraw();},{passive:false});
 
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;if(active<0)return;const m=proj.maps[active];
@@ -915,8 +965,7 @@ let dgDrag=null; // {roomIdx, offX, offY} room being dragged
 let dgLinking=null; // {roomIdx} room we're drawing a transition line from
 let dgMouse={x:0,y:0}; // mouse position in canvas coords
 let dgHover=-1; // room index mouse is over
-const DG_ROOM_SCALE=2; // pixels per tile in dungeon overview
-const DG_PAD=20; // padding around rooms
+let dgZoom=2; // dungeon view zoom (pixels per tile)
 
 function isDungeon(m){return m&&!!m.rooms&&m.rooms.length>0;}
 
@@ -925,7 +974,7 @@ function initRoomPositions(m){
   m.rooms.forEach((r,i)=>{
     if(!m.roomPos[i]){
       const col=i%4, row=Math.floor(i/4);
-      m.roomPos[i]={x:DG_PAD+col*(r.w*DG_ROOM_SCALE+DG_PAD*3), y:DG_PAD+row*(r.h*DG_ROOM_SCALE+DG_PAD*3)};
+      m.roomPos[i]={x:DG_PAD+col*(r.w*dgZoom+DG_PAD*3), y:DG_PAD+row*(r.h*dgZoom+DG_PAD*3)};
     }
   });
   if(!m.transitions) m.transitions=[];
@@ -939,13 +988,22 @@ function enterDungeonView(){
   dgView=true;dgLinking=null;dgDrag=null;dgHover=-1;
   document.getElementById('room-tabs-bar').style.display='none';
   document.getElementById('btn-dg-return').style.display='none';
-  // Hide right panel palettes for cleaner view
+  // Hide toolbar controls not relevant to dungeon view
+  document.getElementById('dg-hide-controls').style.display='none';
+  // Hide right panel entirely for full-width dungeon view
+  document.getElementById('right').style.display='none';
+  // Hide info bar
+  document.getElementById('info-bar').style.display='none';
   redrawDungeon();
 }
 
 function exitDungeonView(roomIdx){
   const m=proj.maps[active];if(!m)return;
   dgView=false;dgLinking=null;
+  // Restore toolbar controls
+  document.getElementById('dg-hide-controls').style.display='';
+  document.getElementById('right').style.display='';
+  document.getElementById('info-bar').style.display='';
   switchRoom(roomIdx);
   document.getElementById('btn-dg-return').style.display='inline-block';
   document.getElementById('room-tabs-bar').style.display='block';
@@ -954,7 +1012,7 @@ function exitDungeonView(roomIdx){
 function roomHitTest(m,mx,my){
   for(let i=m.rooms.length-1;i>=0;i--){
     const p=m.roomPos[i], r=m.rooms[i];
-    const rw=r.w*DG_ROOM_SCALE, rh=r.h*DG_ROOM_SCALE;
+    const rw=r.w*dgZoom, rh=r.h*dgZoom;
     if(mx>=p.x&&mx<=p.x+rw&&my>=p.y&&my<=p.y+rh) return i;
   }
   return -1;
@@ -985,7 +1043,7 @@ function getTransitionTiles(room){
 }
 
 function renderMiniRoom(room, highlightTiles, scale){
-  scale=scale||DG_ROOM_SCALE;
+  scale=scale||dgZoom;
   const cv=document.createElement('canvas');
   cv.width=room.w*scale;cv.height=room.h*scale;
   const g=cv.getContext('2d');g.imageSmoothingEnabled=false;
@@ -1013,8 +1071,8 @@ function redrawDungeon(){
   let maxX=400,maxY=300;
   m.rooms.forEach((r,i)=>{
     const p=m.roomPos[i];
-    maxX=Math.max(maxX,p.x+r.w*DG_ROOM_SCALE+DG_PAD);
-    maxY=Math.max(maxY,p.y+r.h*DG_ROOM_SCALE+DG_PAD);
+    maxX=Math.max(maxX,p.x+r.w*dgZoom+DG_PAD);
+    maxY=Math.max(maxY,p.y+r.h*dgZoom+DG_PAD);
   });
   canvas.width=maxX;canvas.height=maxY;
   ctx.imageSmoothingEnabled=false;
@@ -1024,8 +1082,8 @@ function redrawDungeon(){
     const ra=m.rooms[tr.fromRoom],rb=m.rooms[tr.toRoom];
     if(!ra||!rb)return;
     const pa=m.roomPos[tr.fromRoom],pb=m.roomPos[tr.toRoom];
-    const ax=pa.x+ra.w*DG_ROOM_SCALE/2, ay=pa.y+ra.h*DG_ROOM_SCALE/2;
-    const bx=pb.x+rb.w*DG_ROOM_SCALE/2, by=pb.y+rb.h*DG_ROOM_SCALE/2;
+    const ax=pa.x+ra.w*dgZoom/2, ay=pa.y+ra.h*dgZoom/2;
+    const bx=pb.x+rb.w*dgZoom/2, by=pb.y+rb.h*dgZoom/2;
     ctx.strokeStyle='rgba(160,90,255,0.6)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
     ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();ctx.setLineDash([]);
     // Small diamond at midpoint
@@ -1035,7 +1093,7 @@ function redrawDungeon(){
   // Draw rooms
   m.rooms.forEach((r,i)=>{
     const p=m.roomPos[i];
-    const rw=r.w*DG_ROOM_SCALE, rh=r.h*DG_ROOM_SCALE;
+    const rw=r.w*dgZoom, rh=r.h*dgZoom;
     // Room mini render
     const mini=renderMiniRoom(r,getTransitionTiles(r));
     ctx.drawImage(mini,p.x,p.y);
@@ -1056,7 +1114,7 @@ function redrawDungeon(){
   if(dgLinking!==null){
     const sr=m.rooms[dgLinking.roomIdx];
     const sp=m.roomPos[dgLinking.roomIdx];
-    const sx=sp.x+sr.w*DG_ROOM_SCALE/2, sy=sp.y+sr.h*DG_ROOM_SCALE/2;
+    const sx=sp.x+sr.w*dgZoom/2, sy=sp.y+sr.h*dgZoom/2;
     ctx.strokeStyle='rgba(90,200,255,0.8)';ctx.lineWidth=2;ctx.setLineDash([6,3]);
     ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(dgMouse.x,dgMouse.y);ctx.stroke();ctx.setLineDash([]);
     // Arrow head at mouse
@@ -1070,7 +1128,7 @@ function redrawDungeon(){
   }
   // Info text
   ctx.fillStyle='#666680';ctx.font='11px monospace';ctx.textBaseline='top';
-  let hint='Double-click room to edit  |  Right-click room: set up transition  |  Drag to reposition';
+  let hint='Double-click room to edit  |  Right-click: transition  |  Drag to move  |  Scroll to zoom ('+dgZoom+'×)';
   if(dgLinking) hint='Click a room to connect transition  |  Esc to cancel';
   ctx.fillText(hint,8,maxY-18);ctx.textBaseline='alphabetic';
 }
@@ -1356,24 +1414,48 @@ function getProjectBlob(){
   saveCur();proj.maps.forEach(m=>{ensureColl(m);if(m.rooms)m.rooms.forEach(r=>ensureRoomColl(r));});proj.version=5;
   return new Blob([JSON.stringify(proj,null,2)],{type:'application/json'});
 }
+function getSaveFilename(){
+  let name=document.getElementById('tbFilename').value.trim()||'windgame';
+  const inc=document.getElementById('cbIncrement').checked;
+  if(inc){
+    const m=name.match(/^(.*?)(\d{4})$/);
+    if(m){
+      const num=parseInt(m[2],10)+1;
+      name=m[1]+String(num).padStart(4,'0');
+    } else {
+      name=name+'0000';
+    }
+    document.getElementById('tbFilename').value=name;
+  }
+  return name+'.wgp';
+}
 async function doSave(){
   const blob=getProjectBlob();
+  const fname=getSaveFilename();
   if(fileHandle){
     try{const wr=await fileHandle.createWritable();await wr.write(blob);await wr.close();return;}catch(e){}
   }
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='windgame.wgp';a.click();
+  if(window.showSaveFilePicker&&defaultDirHandle){
+    try{
+      const opts={suggestedName:fname,types:[{description:'WindGame Project',accept:{'application/json':['.wgp']}}],startIn:defaultDirHandle};
+      const handle=await window.showSaveFilePicker(opts);
+      fileHandle=handle;const wr=await handle.createWritable();await wr.write(blob);await wr.close();return;
+    }catch(e){if(e.name==='AbortError')return;}
+  }
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fname;a.click();
 }
 async function doSaveAs(){
   const blob=getProjectBlob();
+  const fname=getSaveFilename();
   if(window.showSaveFilePicker){
     try{
-      const opts={suggestedName:'windgame.wgp',types:[{description:'WindGame Project',accept:{'application/json':['.wgp']}}]};
+      const opts={suggestedName:fname,types:[{description:'WindGame Project',accept:{'application/json':['.wgp']}}]};
       if(defaultDirHandle) opts.startIn=defaultDirHandle;
       const handle=await window.showSaveFilePicker(opts);
       fileHandle=handle;const wr=await handle.createWritable();await wr.write(blob);await wr.close();return;
     }catch(e){if(e.name==='AbortError')return;}
   }
-  const name=prompt('Save filename:','windgame.wgp');if(!name)return;
+  const name=prompt('Save filename:',fname);if(!name)return;
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
 }
 async function setDefaultDir(){
