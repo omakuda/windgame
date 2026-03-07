@@ -547,35 +547,118 @@ static dungeon_state_t s_dungeon;
 
 #define MOVE_SPEED 2
 #define CLIMB_SPEED 2
-#define ATTACK_DURATION 12
-#define INVULN_TIME 30
+#define ATTACK_DURATION_DEF 12
+#define INVULN_TIME_DEF 30
 #define PLAYER_START_HP 10
 
 /*----------------------------------------------------------------------
- * Vertical physics (fixed-point 8.8)
+ * TUNABLE PARAMETERS — runtime-editable via debug console (BTN3 x2)
  *
- * Ported from Zelda 2 disassembly (NES 60fps → adapted to ~50fps).
- *
- * Z2 uses a gravity counter that overflows to increment vspeed:
- *   gravity_counter += gravity_value  (each frame)
- *   on overflow (>255): vspeed += 1
- *
- * Z2 normal gravity value = $48 (72): 72/256 = 0.281 px/frame² at 60fps.
- * Z2 held-A gravity value = $30 (48): 48/256 = 0.188 px/frame² at 60fps.
- * Z2 jump impulse = -4 (4.4 fixed) = -4 px/frame at 60fps.
- * Z2 terminal velocity = 5 (4.4 fixed) = 5 px/frame.
- * Z2 max walk speed = $18 (24 in 4.4) = 1.5 px/frame.
- * Z2 walk accel = 1 per frame (4.4) = 0.0625 px/frame².
- *
- * Conversion: 8.8 fixed = value * 256; 50fps scale = 60/50 = 1.2x.
+ * All player movement, weapon, and physics values are stored here.
+ * The debug console lets you adjust them in-game.
+ * See tvar_names[] below for the full list of variable names.
  *----------------------------------------------------------------------*/
-#define FY_GRAV         86    /* Z2 normal gravity: 72 * (60/50) ≈ 86       */
-#define FY_GRAV_HELD    57    /* Z2 held-A gravity: 48 * (60/50) ≈ 57       */
-#define FY_JUMP       (-1230) /* Z2 jump: -4 * 256 * (60/50) ≈ -1230       */
-#define FY_MAX_FALL    1535   /* Z2 terminal: 5 * 256 * (60/50) ≈ 1535     */
-#define FY_CLIMB       512    /* ladder speed: 2 px/frame                    */
-#define LAND_CROUCH_THRESHOLD  1280  /* Z2: vspeed >= 5 → crouch (5*256)   */
-#define LAND_CROUCH_FRAMES     8     /* Z2: 8 frame crouch on hard landing  */
+
+typedef struct {
+    /* Vertical physics (8.8 fixed-point) */
+    int16_t fy_grav;          /* gravity when falling / not holding jump   */
+    int16_t fy_grav_held;     /* gravity while holding jump + rising       */
+    int16_t fy_jump;          /* jump impulse (negative = up)              */
+    int16_t fy_max_fall;      /* terminal fall velocity                    */
+    int16_t fy_climb;         /* ladder climb speed                        */
+    int16_t land_crouch_thresh; /* vspeed threshold for crouch on landing  */
+    uint8_t land_crouch_frames; /* frames of crouch after hard landing     */
+
+    /* Horizontal physics (8.8 fixed-point) */
+    int16_t fx_max_speed;     /* max horizontal speed                      */
+    int16_t fx_accel;         /* ground acceleration per frame              */
+    int16_t fx_air_accel;     /* air acceleration per frame                 */
+    int16_t fx_air_max;       /* air speed cap                              */
+
+    /* Combat / items */
+    uint8_t attack_duration;  /* frames of sword slash                      */
+    uint8_t invuln_time;      /* iframes after taking damage                */
+    int16_t player_hp;        /* starting / max HP                          */
+    int16_t arrow_speed;      /* bow projectile speed                       */
+    uint8_t arrow_lifetime;   /* bow projectile frames alive                */
+
+    /* Overworld */
+    uint8_t ow_move_speed;    /* overworld pixels per frame                 */
+} tunable_t;
+
+static tunable_t T = {
+    /* fy_grav */       86,
+    /* fy_grav_held */  57,
+    /* fy_jump */       -1230,
+    /* fy_max_fall */   1535,
+    /* fy_climb */      512,
+    /* land_crouch */   1280,
+    /* land_crouch_f */ 8,
+    /* fx_max_speed */  1383,     /* 461 * 3 = 1383 (3x horizontal speed) */
+    /* fx_accel */      57,       /* 19 * 3 = 57 (scale accel to match)   */
+    /* fx_air_accel */  38,       /* slightly more than old 19: 2x ground */
+    /* fx_air_max */    1383,     /* match ground max                     */
+    /* attack_dur */    ATTACK_DURATION_DEF,
+    /* invuln_time */   INVULN_TIME_DEF,
+    /* player_hp */     PLAYER_START_HP,
+    /* arrow_speed */   5,
+    /* arrow_life */    60,
+    /* ow_move_spd */   1,
+};
+
+/* Convenience macros referencing tunable struct */
+#define FY_GRAV         T.fy_grav
+#define FY_GRAV_HELD    T.fy_grav_held
+#define FY_JUMP         T.fy_jump
+#define FY_MAX_FALL     T.fy_max_fall
+#define FY_CLIMB        T.fy_climb
+#define LAND_CROUCH_THRESHOLD  T.land_crouch_thresh
+#define LAND_CROUCH_FRAMES     T.land_crouch_frames
+#define FX_MAX_SPEED    T.fx_max_speed
+#define FX_ACCEL        T.fx_accel
+#define FX_AIR_ACCEL    T.fx_air_accel
+#define FX_AIR_MAX_BASE T.fx_air_max
+#define ATTACK_DURATION T.attack_duration
+#define INVULN_TIME     T.invuln_time
+
+/*----------------------------------------------------------------------
+ * TUNABLE VARIABLE TABLE — for debug console display/editing
+ *
+ * Commands reference:
+ *   Open console: pause (Esc) → BTN3 → BTN3 again
+ *   Navigate:     Up/Down = select variable
+ *   Adjust:       Left/Right = decrease/increase by step
+ *   Fine adjust:  Hold BTN1 + Left/Right = adjust by 1
+ *   Reset:        BTN2 = reset selected variable to default
+ *   Exit:         Esc or BTN3
+ *
+ * Spawn commands (from debug menu, not console):
+ *   Debug > Load Map > Action Maps > [type] = spawn action scene
+ *   Debug > Load Map > Dungeons > [room] > [entry] = spawn in room
+ *----------------------------------------------------------------------*/
+
+typedef struct { const char *name; int16_t *ptr; int16_t step; int16_t def; int16_t min; int16_t max; } tvar_t;
+
+#define TVAR_COUNT 17
+static const tvar_t tvars[TVAR_COUNT] = {
+    {"fy_grav",         &T.fy_grav,           10,   86,    1,  500},
+    {"fy_grav_held",    &T.fy_grav_held,      5,    57,    1,  500},
+    {"fy_jump",         &T.fy_jump,           50,  -1230, -3000, 0},
+    {"fy_max_fall",     &T.fy_max_fall,       50,   1535,  256, 5000},
+    {"fy_climb",        (int16_t*)&T.fy_climb, 32,  512,   64, 2048},
+    {"land_crouch_thr", &T.land_crouch_thresh, 64,  1280,  0,  5000},
+    {"land_crouch_frm", (int16_t*)&T.land_crouch_frames, 1, 8, 0, 60},
+    {"fx_max_speed",    &T.fx_max_speed,      50,   1383,  64, 4096},
+    {"fx_accel",        &T.fx_accel,          5,    57,    1,  500},
+    {"fx_air_accel",    &T.fx_air_accel,      5,    38,    1,  500},
+    {"fx_air_max",      &T.fx_air_max,        50,   1383,  64, 4096},
+    {"attack_dur",      (int16_t*)&T.attack_duration, 1, ATTACK_DURATION_DEF, 1, 120},
+    {"invuln_time",     (int16_t*)&T.invuln_time, 5, INVULN_TIME_DEF, 0, 255},
+    {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
+    {"arrow_speed",     &T.arrow_speed,       1,    5,     1,  20},
+    {"arrow_lifetime",  (int16_t*)&T.arrow_lifetime, 5, 60, 10, 255},
+    {"ow_move_speed",   (int16_t*)&T.ow_move_speed, 1, 1,  1,  8},
+};
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
  * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
@@ -586,21 +669,11 @@ static dungeon_state_t s_dungeon;
 #define PATTERN_OW_PLAYER 1   /* sprite pattern 1 = overworld player   */
 
 /*----------------------------------------------------------------------
- * Horizontal momentum (fixed-point 8.8)
- *
- * Z2 walk: accel +1/frame in 4.4 = +16 in 8.8 → at 50fps: ~19.
- * Z2 max speed: $18 (24) in 4.4 = 1.5 px/frame = 384 in 8.8 → at 50fps: ~461.
- * Z2 decel: instant stop when no input on ground (no slide).
- * Z2 air control: same accel as ground (full air control).
- * Z2 wall collision: velocity zeroed immediately.
+ * Horizontal momentum — values now in tunable_t T (see above)
  *----------------------------------------------------------------------*/
 #define FX_SHIFT       8
 #define FX_ONE         (1 << FX_SHIFT)           /* 256  */
-#define FX_MAX_SPEED   461                        /* Z2 max: 1.5px * 256 * 1.2 */
-#define FX_ACCEL       19                         /* Z2 accel: 16 * 1.2 */
-#define FX_DECEL       9999                       /* Z2: instant stop on ground */
-#define FX_AIR_ACCEL   19                         /* Z2: same as ground */
-#define FX_AIR_MAX_BASE  461                      /* Z2: full speed in air */
+#define FX_DECEL       9999                       /* instant stop on ground */
 #define FX_TO_PX(v)    ((int16_t)((v) / FX_ONE))  /* symmetric toward-zero truncation */
 
 /*==========================================================================
@@ -1015,23 +1088,53 @@ static void action_update(uint16_t input,uint16_t pressed){
     hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
     {uint8_t was_on_ladder=s_player.on_ladder;
     uint8_t touching_ladder=box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_LADDER);
-    /* Ladder grab: only grab when pressing UP or DOWN while touching ladder tiles.
-     * Once on ladder, ONLY release via JUMP (not by walking off). */
+
+    /* Ladder top detection: check if feet are at the top of a ladder column.
+     * "Top" means the tile below feet is ladder but the tile AT feet level is not. */
+    uint8_t at_ladder_top=0;
+    {int16_t foot_y2=s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H;
+     uint16_t fty2=(uint16_t)(foot_y2/TILE_SIZE);
+     uint16_t ftx2=(uint16_t)((s_player.x+PLAYER_HB_X_OFFSET+PLAYER_HB_W/2)/TILE_SIZE);
+     /* Tile at feet = ladder, tile above feet = not ladder → we're at top */
+     if(fty2<s_act_map_h && ftx2<s_act_map_w){
+         uint8_t below_flags=tile_flags(hal_tilemap_get(ftx2,fty2));
+         uint8_t above_flags=(fty2>0)?tile_flags(hal_tilemap_get(ftx2,fty2-1)):0;
+         if((below_flags&TILE_LADDER)&&!(above_flags&TILE_LADDER)) at_ladder_top=1;
+     }
+    }
+
+    /* Ladder grab/release logic */
     if(s_player.on_ladder){
-        /* Release ladder if player is no longer touching any ladder tile */
-        if(!touching_ladder)
+        /* Release if no longer touching AND not at ladder top */
+        if(!touching_ladder && !at_ladder_top)
             s_player.on_ladder=0;
+        /* When climbing up and reaching the top: dismount onto the top */
+        if(s_player.on_ladder && at_ladder_top && (input&INPUT_UP)){
+            /* Snap player to stand on top of ladder tile */
+            int16_t foot_y3=s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H;
+            uint16_t snap_ty=(uint16_t)(foot_y3/TILE_SIZE);
+            s_player.y=(int16_t)(snap_ty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
+            s_player.on_ladder=0;s_player.on_ground=1;
+            s_player.vel_fy=0;s_player.vel_y=0;
+        }
     } else {
-        /* Grab ladder only if pressing up/down AND touching ladder */
+        /* Grab ladder: pressing up/down AND touching ladder */
         if(touching_ladder && (input&(INPUT_UP|INPUT_DOWN)))
             s_player.on_ladder=1;
+        /* Standing on ladder top and pressing DOWN → start climbing down */
+        if(!s_player.on_ladder && at_ladder_top && s_player.on_ground && (input&INPUT_DOWN)){
+            s_player.on_ladder=1;
+            s_player.on_ground=0;
+            /* Nudge player down slightly so they're inside the ladder */
+            s_player.y+=2;
+        }
     }
     /* If player just left a ladder into air, give immediate downward kick */
     if(was_on_ladder&&!s_player.on_ladder&&!s_player.on_ground){
         if(s_player.vel_fy==0) s_player.vel_fy=FY_GRAV*4;
     }}
 
-    /* Ground probe: check if feet are touching solid/platform BEFORE gravity.
+    /* Ground probe: check if feet are touching solid/platform/ladder-top BEFORE gravity.
      * This ensures on_ground is set even when vel_y==0 (standing still). */
     {int16_t foot_y=s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H;
      uint16_t foot_ty=(uint16_t)(foot_y/TILE_SIZE);
@@ -1045,6 +1148,18 @@ static void action_update(uint16_t input,uint16_t pressed){
      /* Only count platforms if player feet are exactly at tile boundary */
      if(!((ffl|ffr|ffm)&TILE_SOLID)){
          if((foot_y%TILE_SIZE)!=0) s_player.on_ground=0;
+     }
+     /* Ladder top acts as platform: if feet are exactly at a ladder tile top
+      * and not currently climbing, treat it as ground */
+     if(!s_player.on_ladder && !s_player.on_ground && (foot_y%TILE_SIZE)==0){
+         if((ffl|ffr|ffm)&TILE_LADDER){
+             /* Check tile above is NOT ladder (confirming we're at the top) */
+             uint8_t above_l=(foot_ty>0)?tile_flags(hal_tilemap_get(foot_tx_l,foot_ty-1)):0;
+             uint8_t above_r=(foot_ty>0)?tile_flags(hal_tilemap_get(foot_tx_r,foot_ty-1)):0;
+             uint8_t above_m=(foot_ty>0)?tile_flags(hal_tilemap_get(foot_tx_m,foot_ty-1)):0;
+             if(!((above_l|above_r|above_m)&TILE_LADDER))
+                 s_player.on_ground=1;
+         }
      }
     }
 
@@ -1665,6 +1780,57 @@ static void debug_input(uint16_t pressed){
 }
 
 /*==========================================================================
+ * DEBUG CONSOLE — in-game parameter editor
+ *
+ * Access: Pause → BTN3 (debug menu) → BTN3 again (console)
+ * Navigate: Up/Down = select variable
+ * Adjust: Left/Right = change by step, BTN1+Left/Right = change by 1
+ * Reset: BTN2 = reset to default
+ * Exit: Escape/Menu or BTN3
+ *==========================================================================*/
+static uint8_t s_console_open;
+static uint8_t s_console_cursor;
+static uint8_t s_console_scroll;
+#define CONSOLE_VISIBLE 14
+
+static void console_draw(void){
+    uint8_t i;
+    hal_draw_rect(4,2,248,188,0x00);hal_draw_rect(6,4,244,184,0x02);
+    hal_draw_text(50,5,"== PARAM CONSOLE ==",0xFF);
+    hal_draw_text(8,16,"Name",0xAD);hal_draw_text(130,16,"Value",0xAD);hal_draw_text(180,16,"Def",0xAD);
+    for(i=0;i<CONSOLE_VISIBLE&&(i+s_console_scroll)<TVAR_COUNT;i++){
+        uint8_t idx=i+s_console_scroll;
+        const tvar_t *v=&tvars[idx];
+        uint8_t col=(idx==s_console_cursor)?0xFC:0xFF;
+        int16_t yy=27+(int16_t)i*11;
+        hal_draw_text(8,yy,v->name,col);
+        hal_draw_number(130,yy,(int32_t)*v->ptr,col);
+        hal_draw_number(180,yy,(int32_t)v->def,0xAD);
+        if(idx==s_console_cursor) hal_draw_text(2,yy,">",0xE0);
+    }
+    if(s_console_scroll>0) hal_draw_text(120,19,"^",0xAD);
+    if(s_console_scroll+CONSOLE_VISIBLE<TVAR_COUNT) hal_draw_text(120,27+(int16_t)CONSOLE_VISIBLE*11,"v",0xAD);
+    hal_draw_text(6,178,"L/R=adj Btn1+L/R=fine Btn2=reset",0xAD);
+}
+
+static void console_input(uint16_t pressed, uint16_t input){
+    if(pressed&INPUT_UP){if(s_console_cursor>0)s_console_cursor--;}
+    if(pressed&INPUT_DOWN){if(s_console_cursor<TVAR_COUNT-1)s_console_cursor++;}
+    if(s_console_cursor<s_console_scroll)s_console_scroll=s_console_cursor;
+    if(s_console_cursor>=s_console_scroll+CONSOLE_VISIBLE)s_console_scroll=s_console_cursor-CONSOLE_VISIBLE+1;
+
+    {const tvar_t *v=&tvars[s_console_cursor];
+    int16_t step=(input&INPUT_JUMP)?1:v->step; /* fine adjust with BTN1 held */
+    if(pressed&INPUT_LEFT){*v->ptr-=step;if(*v->ptr<v->min)*v->ptr=v->min;}
+    if(pressed&INPUT_RIGHT){*v->ptr+=step;if(*v->ptr>v->max)*v->ptr=v->max;}
+    if(pressed&INPUT_BTN2){*v->ptr=v->def;} /* reset to default */
+    }
+
+    if(pressed&INPUT_BTN3){s_console_open=0;} /* exit console */
+    if(pressed&INPUT_MENU){s_console_open=0;s_debug_menu=0;} /* exit all */
+}
+
+/*==========================================================================
  * KEYBIND EDITOR
  * Accessible from debug menu. Shows all bindings, press Jump to rebind.
  * Press any key to assign it to the selected binding slot.
@@ -1737,12 +1903,12 @@ static void render(void){
 
     if(s_scene==SCENE_ACTION){
         if(s_player.crouching){
-            /* Crouched: show crouch pattern (single 16x16) */
+            /* Crouched: show crouch pattern at bottom sprite position */
             ps.id=0;ps.pattern=PATTERN_ACT_TOP;ps.palette=0;ps.flags=0; /* hide top slot */
             ps.x=s_player.x-s_camera_x;ps.y=s_player.y;
             hal_sprite_set(&ps);
             ps.id=1;ps.pattern=PATTERN_ACT_CROUCH;ps.flags=pflags;
-            ps.y=s_player.y+8; /* raised crouch position */
+            ps.y=s_player.y+SPRITE_H; /* same position as bottom sprite */
             hal_sprite_set(&ps);
         }else{
             /* Top half (head/torso) — sprite slot 0 */
@@ -1794,6 +1960,7 @@ static void render(void){
     if(s_bag_open)bag_draw();
     if(s_paused)menu_draw();
     if(s_debug_menu)debug_draw();
+    if(s_console_open)console_draw();
     if(s_keybind_editor)keybind_draw();
     /* Transition blackout overlay */
     if(s_transition_timer>0){hal_draw_rect(0,0,128,192,0x00);hal_draw_rect(128,0,128,192,0x00);}
@@ -1811,7 +1978,7 @@ int main(void){
     rng_seed((uint16_t)(hal_frame_count()+12345));
     s_scene=SCENE_OVERWORLD;s_action_reason=ACTION_REASON_NONE;
     s_map_event_type=MAP_EVENT_FIELD;s_safe_type=SAFE_LONE_CHARACTER;
-    s_paused=0;s_bag_open=0;s_friendly_dialog=0;s_transition_timer=0;s_debug_menu=0;s_force_reinit=0;s_immune_active=0;s_keybind_editor=0;
+    s_paused=0;s_bag_open=0;s_friendly_dialog=0;s_transition_timer=0;s_debug_menu=0;s_force_reinit=0;s_immune_active=0;s_keybind_editor=0;s_console_open=0;
     s_camera_x=0;s_ow_cam_x=0;s_ow_cam_y=0;
     s_ow_player_x=2*TILE_SIZE;s_ow_player_y=2*TILE_SIZE;
     s_player.hp=PLAYER_START_HP;s_action_npc_count=0;
@@ -1835,7 +2002,12 @@ int main(void){
         /* BTN2 (K) opens control bind editor from pause menu */
         if(s_paused&&(pressed&INPUT_BTN2)){s_keybind_editor=1;s_keybind_cursor=0;s_keybind_waiting=0;s_paused=0;}
         if(s_keybind_editor){keybind_input(pressed);}
-        else if(s_debug_menu){debug_input(pressed);}
+        else if(s_console_open){console_input(pressed,input);}
+        else if(s_debug_menu){
+            /* BTN3 from debug menu opens parameter console */
+            if(pressed&INPUT_BTN3){s_console_open=1;s_console_cursor=0;s_console_scroll=0;}
+            else debug_input(pressed);
+        }
         else if(s_bag_open){bag_input(pressed);}
         else if(!s_paused){switch(s_scene){case SCENE_OVERWORLD:overworld_update(input,pressed);break;case SCENE_ACTION:action_update(input,pressed);break;}}
         if(s_scene!=last_scene||s_force_reinit){s_paused=0;s_bag_open=0;s_transition_timer=TRANSITION_FRAMES;s_force_reinit=0;
