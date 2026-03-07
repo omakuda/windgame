@@ -1584,6 +1584,10 @@ static uint8_t s_keybind_waiting;
  * DEBUG MENU — hierarchical with load sub-menus and scrolling
  *==========================================================================*/
 static uint8_t s_debug_menu;
+/* Forward-declared here; defined later with console_draw/console_input */
+static uint8_t s_console_open;
+static uint8_t s_console_cursor;
+static uint8_t s_console_scroll;
 static uint8_t s_debug_cursor;
 static uint8_t s_debug_scroll;  /* scroll offset for long lists */
 static uint8_t s_debug_level;   /* 0=main, 1=sub-cat, 2=sub-sub, 3=room pick, 4=entry pick */
@@ -1792,9 +1796,6 @@ static void debug_input(uint16_t pressed){
  * Reset: BTN2 = reset to default
  * Exit: Escape/Menu or BTN3
  *==========================================================================*/
-static uint8_t s_console_open;
-static uint8_t s_console_cursor;
-static uint8_t s_console_scroll;
 #define CONSOLE_VISIBLE 14
 
 static void console_draw(void){
