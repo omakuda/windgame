@@ -638,18 +638,18 @@ typedef struct {
     int16_t dn_speed;         /* clock speed multiplier (1=normal, 10=fast) */
 } tunable_t;
 
-static tunable_t T = {
-    /* fy_grav */       86,
-    /* fy_grav_held */  57,
+static tunable_t T = {          /* modify the player settings */
+    /* fy_grav */       106,
+    /* fy_grav_held */  67,
     /* fy_jump */       -1230,
     /* fy_max_fall */   1535,
     /* fy_climb */      512,
     /* land_crouch */   1280,
     /* land_crouch_f */ 8,
-    /* fx_max_speed */  1383,     /* 461 * 3 = 1383 (3x horizontal speed) */
-    /* fx_accel */      57,       /* 19 * 3 = 57 (scale accel to match)   */
-    /* fx_air_accel */  38,       /* slightly more than old 19: 2x ground */
-    /* fx_air_max */    1383,     /* match ground max                     */
+    /* fx_max_speed */  683,     
+    /* fx_accel */      52,       /* 19 * 3 = 57 (scale accel to match)   */
+    /* fx_air_accel */  18,       /* slightly more than old 19: 2x ground */
+    /* fx_air_max */    683,     /* match ground max                     */
     /* attack_dur */    ATTACK_DURATION_DEF,
     /* invuln_time */   INVULN_TIME_DEF,
     /* player_hp */     PLAYER_START_HP,
