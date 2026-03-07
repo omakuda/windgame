@@ -161,6 +161,10 @@ static const world_map_t world_maps[NUM_WORLD_MAPS] = {
 };
 static uint8_t s_cur_world_map = 0; /* index into world_maps[] */
 
+/* Forward declarations for overworld tile pattern swap (defined after action maps) */
+static void action_clear_ow_tiles(void);
+static void ow_restore_tiles(void);
+
 /*==========================================================================
  * FIELD ACTION MAPS -- exit tiles (8) on L/R borders
  *==========================================================================*/
@@ -847,8 +851,6 @@ static void placed_ladder_clear(void);
 static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input);
 static void inventory_init(void);
 static void bag_input(uint16_t pressed);
-static void action_clear_ow_tiles(void);
-static void ow_restore_tiles(void);
 
 /* Overworld-only tile IDs: road(7), town(11), forest(13).
    In action mode, tile 7 is repurposed as ice (keeps its pattern).
