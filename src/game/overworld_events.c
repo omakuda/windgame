@@ -98,13 +98,32 @@ static int8_t find_free_slot(void) {
 
 static uint8_t find_spawn_position(int16_t player_x, int16_t player_y,
                                    int16_t *out_x, int16_t *out_y) {
-    uint8_t attempts = 20;
+    /* Spawn at least 3 tiles from map edges and inside screen rectangle
+     * closer to the player than the edge. */
+    uint8_t attempts = 30;
+    int16_t margin = 3 * TILE_SIZE;
+    int16_t min_x = margin;
+    int16_t min_y = margin;
+    int16_t max_x = (int16_t)((s_map_w - 3) * TILE_SIZE);
+    int16_t max_y = (int16_t)((s_map_h - 3) * TILE_SIZE);
     while (attempts > 0) {
-        uint16_t tx = rng_range16(1, s_map_w - 2);
-        uint16_t ty = rng_range16(1, s_map_h - 2);
+        /* Bias toward player: 70% chance spawn within ~8 tiles of player */
+        int16_t px, py;
+        if (rng_chance(70)) {
+            px = player_x + (int16_t)((int8_t)rng_range(17) - 8) * TILE_SIZE;
+            py = player_y + (int16_t)((int8_t)rng_range(17) - 8) * TILE_SIZE;
+        } else {
+            px = (int16_t)(rng_range16(3, s_map_w - 4) * TILE_SIZE);
+            py = (int16_t)(rng_range16(3, s_map_h - 4) * TILE_SIZE);
+        }
+        /* Clamp to 3-tile margin */
+        if (px < min_x) px = min_x;
+        if (py < min_y) py = min_y;
+        if (px > max_x) px = max_x;
+        if (py > max_y) py = max_y;
+        {uint16_t tx = (uint16_t)(px / TILE_SIZE);
+         uint16_t ty = (uint16_t)(py / TILE_SIZE);
         if (tile_is_walkable(tx, ty)) {
-            int16_t px = (int16_t)(tx * TILE_SIZE);
-            int16_t py = (int16_t)(ty * TILE_SIZE);
             int16_t dx = px - player_x;
             int16_t dy = py - player_y;
             if (dx < 0) dx = -dx;
@@ -114,7 +133,7 @@ static uint8_t find_spawn_position(int16_t player_x, int16_t player_y,
                 *out_y = py;
                 return 1;
             }
-        }
+        }}
         attempts--;
     }
     return 0;
@@ -159,16 +178,36 @@ static uint8_t pattern_for_type(event_type_t type) {
     }
 }
 
+/* Player position cache for movement AI (set each frame in events_update) */
+static int16_t s_player_x, s_player_y;
+
 static void randomize_movement(map_event_t *ev) {
-    uint8_t dir = rng_range(5);
-    ev->move_dx = 0;
-    ev->move_dy = 0;
-    switch (dir) {
-        case 1: ev->move_dy = -1; break;
-        case 2: ev->move_dy =  1; break;
-        case 3: ev->move_dx = -1; break;
-        case 4: ev->move_dx =  1; break;
-        default: break;
+    /* 60% chance: move toward player. 40%: random direction.
+     * Events NEVER stand still — always pick a direction. */
+    if (rng_chance(60)) {
+        int16_t dx = s_player_x - ev->x;
+        int16_t dy = s_player_y - ev->y;
+        int16_t ax = dx; if (ax < 0) ax = -ax;
+        int16_t ay = dy; if (ay < 0) ay = -ay;
+        if (ax > ay) {
+            ev->move_dx = (dx > 0) ? 1 : -1;
+            ev->move_dy = 0;
+        } else if (ay > 0) {
+            ev->move_dx = 0;
+            ev->move_dy = (dy > 0) ? 1 : -1;
+        } else {
+            ev->move_dx = (rng_range(2)) ? 1 : -1;
+            ev->move_dy = 0;
+        }
+    } else {
+        /* Random cardinal direction — never (0,0) */
+        uint8_t dir = rng_range(4);
+        switch (dir) {
+            case 0: ev->move_dx= 0;ev->move_dy=-1;break;
+            case 1: ev->move_dx= 0;ev->move_dy= 1;break;
+            case 2: ev->move_dx=-1;ev->move_dy= 0;break;
+            default:ev->move_dx= 1;ev->move_dy= 0;break;
+        }
     }
     ev->move_timer = (uint8_t)rng_range16(EVENT_MOVE_INTERVAL_MIN,
                                            EVENT_MOVE_INTERVAL_MAX);
@@ -202,12 +241,12 @@ static void spawn_group(int16_t player_x, int16_t player_y, uint8_t group_is_ene
         ox = anchor_x + (int16_t)((int8_t)rng_range(3) - 1) * TILE_SIZE;
         oy = anchor_y + (int16_t)((int8_t)rng_range(3) - 1) * TILE_SIZE;
 
-        if (ox < TILE_SIZE) ox = TILE_SIZE;
-        if (oy < TILE_SIZE) oy = TILE_SIZE;
-        if (ox > (int16_t)((s_map_w - 2) * TILE_SIZE))
-            ox = (int16_t)((s_map_w - 2) * TILE_SIZE);
-        if (oy > (int16_t)((s_map_h - 2) * TILE_SIZE))
-            oy = (int16_t)((s_map_h - 2) * TILE_SIZE);
+        if (ox < 3 * TILE_SIZE) ox = 3 * TILE_SIZE;
+        if (oy < 3 * TILE_SIZE) oy = 3 * TILE_SIZE;
+        if (ox > (int16_t)((s_map_w - 4) * TILE_SIZE))
+            ox = (int16_t)((s_map_w - 4) * TILE_SIZE);
+        if (oy > (int16_t)((s_map_h - 4) * TILE_SIZE))
+            oy = (int16_t)((s_map_h - 4) * TILE_SIZE);
 
         {
             uint16_t check_tx = (uint16_t)(ox / TILE_SIZE);
@@ -246,8 +285,13 @@ static void spawn_group(int16_t player_x, int16_t player_y, uint8_t group_is_ene
 static void move_event(map_event_t *ev) {
     int16_t nx, ny;
     uint16_t check_tx, check_ty;
+    int16_t margin = 3 * TILE_SIZE;
+    int16_t edge_min_x = margin;
+    int16_t edge_min_y = margin;
+    int16_t edge_max_x = (int16_t)((s_map_w - 3) * TILE_SIZE);
+    int16_t edge_max_y = (int16_t)((s_map_h - 3) * TILE_SIZE);
 
-    if (ev->move_speed == 0) return;
+    if (ev->move_speed == 0) ev->move_speed = 2; /* never zero */
 
     if (ev->move_timer > 0) {
         ev->move_timer--;
@@ -255,9 +299,51 @@ static void move_event(map_event_t *ev) {
         randomize_movement(ev);
     }
 
+    /* Events never stand still */
+    if (ev->move_dx == 0 && ev->move_dy == 0) {
+        randomize_movement(ev);
+    }
+
     nx = ev->x + (int16_t)(ev->move_dx * ev->move_speed);
     ny = ev->y + (int16_t)(ev->move_dy * ev->move_speed);
 
+    /* Edge bounce: if hitting map margin, turn perpendicular.
+     * Choose the perpendicular direction that doesn't also hit an edge. */
+    {uint8_t hit_edge = 0;
+    if (nx < edge_min_x || nx > edge_max_x) hit_edge = 1;
+    if (ny < edge_min_y || ny > edge_max_y) hit_edge = 1;
+
+    if (hit_edge) {
+        /* Try perpendicular directions */
+        int8_t old_dx = ev->move_dx, old_dy = ev->move_dy;
+        if (old_dx != 0) {
+            /* Was moving horizontally — try vertical */
+            /* Prefer toward player */
+            int8_t try_dy = (s_player_y > ev->y) ? 1 : -1;
+            int16_t test_y = ev->y + try_dy * ev->move_speed;
+            if (test_y >= edge_min_y && test_y <= edge_max_y) {
+                ev->move_dx = 0; ev->move_dy = try_dy;
+            } else {
+                ev->move_dx = 0; ev->move_dy = -try_dy;
+            }
+        } else {
+            /* Was moving vertically — try horizontal */
+            int8_t try_dx = (s_player_x > ev->x) ? 1 : -1;
+            int16_t test_x = ev->x + try_dx * ev->move_speed;
+            if (test_x >= edge_min_x && test_x <= edge_max_x) {
+                ev->move_dy = 0; ev->move_dx = try_dx;
+            } else {
+                ev->move_dy = 0; ev->move_dx = -try_dx;
+            }
+        }
+        ev->move_timer = (uint8_t)rng_range16(EVENT_MOVE_INTERVAL_MIN,
+                                               EVENT_MOVE_INTERVAL_MAX);
+        /* Recalculate new position with corrected direction */
+        nx = ev->x + (int16_t)(ev->move_dx * ev->move_speed);
+        ny = ev->y + (int16_t)(ev->move_dy * ev->move_speed);
+    }}
+
+    /* Tile walkability check */
     check_tx = (uint16_t)((nx + SPRITE_W / 2) / TILE_SIZE);
     check_ty = (uint16_t)((ny + SPRITE_H / 2) / TILE_SIZE);
 
@@ -265,15 +351,15 @@ static void move_event(map_event_t *ev) {
         ev->x = nx;
         ev->y = ny;
     } else {
+        /* Hit a wall — immediately pick new direction toward player */
         randomize_movement(ev);
     }
 
-    if (ev->x < TILE_SIZE) ev->x = TILE_SIZE;
-    if (ev->y < TILE_SIZE) ev->y = TILE_SIZE;
-    if (ev->x > (int16_t)((s_map_w - 2) * TILE_SIZE))
-        ev->x = (int16_t)((s_map_w - 2) * TILE_SIZE);
-    if (ev->y > (int16_t)((s_map_h - 2) * TILE_SIZE))
-        ev->y = (int16_t)((s_map_h - 2) * TILE_SIZE);
+    /* Hard clamp to 3-tile margin */
+    if (ev->x < edge_min_x) ev->x = edge_min_x;
+    if (ev->y < edge_min_y) ev->y = edge_min_y;
+    if (ev->x > edge_max_x) ev->x = edge_max_x;
+    if (ev->y > edge_max_y) ev->y = edge_max_y;
 }
 
 /*--------------------------------------------------------------------------
@@ -389,6 +475,8 @@ encounter_t events_update(int16_t player_x, int16_t player_y) {
         }
 
         /* Update all active events: move + check player collision */
+        s_player_x = player_x;
+        s_player_y = player_y;
         for (i = 0; i < MAX_MAP_EVENTS; i++) {
             map_event_t *ev = &s_events[i];
 

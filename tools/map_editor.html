@@ -198,6 +198,7 @@ input[type="file"] { display:none; }
       <span class="tool-btn active" id="toolPaint" onclick="setTool('paint')">✏ Paint</span>
       <span class="tool-btn" id="toolSelect" onclick="setTool('select')">⬚ Select</span>
       <span class="tool-btn" id="toolNpc" onclick="setTool('npc')">👤 NPC</span>
+      <span class="tool-btn" id="toolEnemy" onclick="setTool('enemy')">💀 Enemy</span>
     </div>
     <select id="npcSelect" style="display:none;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onNpcDropdown()"></select>
     </span>
@@ -222,6 +223,13 @@ input[type="file"] { display:none; }
     <div id="npc-type-list"></div>
     <h3 style="margin-top:8px">PLACED NPCs</h3>
     <div id="npc-placed-list" class="npc-placed-list"></div>
+  </div>
+  <div id="enemy-panel" style="display:none;">
+    <h3>ENEMY TYPES</h3>
+    <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Click type, then click map to place. Esc to deselect.</div>
+    <div id="enemy-type-list"></div>
+    <h3 style="margin-top:8px">PLACED ENEMIES</h3>
+    <div id="enemy-placed-list" class="npc-placed-list"></div>
   </div>
   <div id="spawn-panel" style="display:none;"><h3>SPAWN ZONES</h3>
     <div style="font-size:10px;color:var(--dim);margin-bottom:4px;padding:0 8px">Paint zone IDs (1-8). 0=none.</div>
@@ -483,14 +491,17 @@ function san(s){return(s||'').replace(/[^a-zA-Z0-9_]/g,'_').replace(/^(\d)/,'_$1
 // ======== TOOL & LAYER ========
 function setTool(t){
   curTool=t;sel=null;selNpcType=t==='npc'?Math.max(selNpcType,0):-1;
+  if(t!=='enemy')selEnemyType=-1;else selEnemyType=Math.max(selEnemyType,0);
   document.getElementById('toolPaint').classList.toggle('active',t==='paint');
   document.getElementById('toolSelect').classList.toggle('active',t==='select');
   document.getElementById('toolNpc').classList.toggle('active',t==='npc');
+  document.getElementById('toolEnemy').classList.toggle('active',t==='enemy');
   document.getElementById('npcSelect').style.display=t==='npc'?'inline-block':'none';
   if(t==='npc') buildNpcDropdown();
-  const showNpc=(t==='npc');
+  const showNpc=(t==='npc'),showEnemy=(t==='enemy');
   document.getElementById('npc-panel').style.display=showNpc?'block':'none';
-  if(t!=='npc'){
+  document.getElementById('enemy-panel').style.display=showEnemy?'block':'none';
+  if(t!=='npc'&&t!=='enemy'){
     document.getElementById('tile-section').style.display=editLayer==='tiles'?'':'none';
     document.getElementById('coll-section').style.display=editLayer==='collision'?'':'none';
     document.getElementById('env-section').style.display=editLayer==='env'?'':'none';
@@ -500,8 +511,9 @@ function setTool(t){
     document.getElementById('env-section').style.display='none';
   }
   if(showNpc) buildNpcPanel();
-  document.getElementById('infoTool').textContent='Tool: '+{paint:'Paint',select:'Select',npc:'NPC'}[t];
-  canvas.style.cursor=t==='select'?'crosshair':t==='npc'?'none':'crosshair';
+  if(showEnemy) buildEnemyPanel();
+  document.getElementById('infoTool').textContent='Tool: '+{paint:'Paint',select:'Select',npc:'NPC',enemy:'Enemy'}[t];
+  canvas.style.cursor=(t==='select')?'crosshair':(t==='npc'||t==='enemy')?'none':'crosshair';
   redraw();
 }
 function setLayer(l){
@@ -637,6 +649,70 @@ function buildNpcPanel(){
   });
 }
 function removeNpc(i){const m=proj.maps[active];if(!m)return;m.npcs.splice(i,1);buildNpcPanel();redraw();}
+
+// ======== ENEMY TYPES & SPRITES ========
+const ENEMY_TYPES=[
+  {key:'slime',    name:'Slime',    col1:0x28, col2:0x2C, size:10},
+  {key:'skeleton', name:'Skeleton', col1:0xB6, col2:0xDB, size:14},
+  {key:'bat',      name:'Bat',      col1:0x57, col2:0x9F, size:10},
+  {key:'knight',   name:'Knight',   col1:0xC0, col2:0xE4, size:14},
+  {key:'wizard',   name:'Wizard',   col1:0x5F, col2:0xBF, size:14},
+  {key:'boss',     name:'Boss',     col1:0xC0, col2:0xFF, size:16},
+];
+const enemyImg=[];
+let selEnemyType=-1;
+
+function initEnemySprites(){
+  enemyImg.length=0;
+  ENEMY_TYPES.forEach(en=>{
+    const cv=document.createElement('canvas');cv.width=16;cv.height=16;const g=cv.getContext('2d');
+    for(let py=0;py<16;py++)for(let px=0;px<16;px++){
+      let c=0x00;
+      const cx2=px-7,cy2=py-7;
+      const r2=cx2*cx2+cy2*cy2;
+      const rmax=(en.size/2)*(en.size/2);
+      if(r2<=rmax){
+        c=((px+py)&1)?en.col1:en.col2;
+        /* Eyes */
+        if(py>=5&&py<=7&&(px===5||px===9)) c=0xFF;
+        if(py===6&&(px===6||px===10)) c=0x00;
+      }
+      g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
+    }
+    enemyImg.push(cv);
+  });
+}
+
+function buildEnemyPanel(){
+  const tl=document.getElementById('enemy-type-list');tl.innerHTML='';
+  ENEMY_TYPES.forEach((en,i)=>{
+    const d=document.createElement('div');d.className='npc-type-item'+(i===selEnemyType?' active':'');
+    const cv=document.createElement('canvas');cv.width=16;cv.height=16;cv.style.width='24px';cv.style.height='24px';
+    cv.style.imageRendering='pixelated';cv.getContext('2d').drawImage(enemyImg[i],0,0);
+    const nm=document.createElement('span');nm.className='npc-name';nm.textContent=en.name;
+    d.appendChild(cv);d.appendChild(nm);
+    d.onclick=()=>{selEnemyType=i;buildEnemyPanel();};tl.appendChild(d);
+  });
+  const pl=document.getElementById('enemy-placed-list');pl.innerHTML='';
+  const m=active>=0?proj.maps[active]:null;if(!m)return;
+  (m.enemies||[]).forEach((e,i)=>{
+    const d=document.createElement('div');d.className='npc-placed';
+    d.innerHTML=`<span style="color:var(--accent2)">${e.type}</span>
+      <span style="color:var(--dim);margin-left:4px">(${e.tx},${e.ty})</span>
+      <span class="npc-del" onclick="removeEnemy(${i})">×</span>`;
+    pl.appendChild(d);
+  });
+}
+function removeEnemy(i){const m=proj.maps[active];if(!m)return;m.enemies.splice(i,1);buildEnemyPanel();redraw();}
+
+function isEnemyPlacementValid(m,tx,ty){
+  if(tx<0||tx>=m.w||ty<0||ty>=m.h) return false;
+  ensureColl(m);
+  const coll=m.collisionLayer[ty*m.w+tx]||0;
+  if([1,4,5].includes(coll)) return false; /* not on solid/platform/ladder */
+  for(const e of (m.enemies||[])){if(e.tx===tx&&e.ty===ty)return false;}
+  return true;
+}
 function buildNpcDropdown(){
   const sel=document.getElementById('npcSelect');
   sel.innerHTML=NPC_TYPES.map((n,i)=>`<option value="${i}"${i===selNpcType?' selected':''}>${n.name}</option>`).join('');
@@ -744,6 +820,13 @@ function redraw(){
     ctx.drawImage(npcImg[ti],nx,ny,ts,ts*2);
     ctx.strokeStyle='#4ae08a';ctx.lineWidth=2;ctx.strokeRect(nx+1,ny+1,ts-2,ts*2-2);
   });
+  // Draw placed enemies (1 tile)
+  if(m.enemies)(m.enemies).forEach(e=>{
+    const ti=ENEMY_TYPES.findIndex(t=>t.key===e.type);if(ti<0)return;
+    const ex2=e.tx*ts,ey2=e.ty*ts;
+    ctx.drawImage(enemyImg[ti],ex2,ey2,ts,ts);
+    ctx.strokeStyle='#ff5b7a';ctx.lineWidth=2;ctx.strokeRect(ex2+1,ey2+1,ts-2,ts-2);
+  });
   // Selection rectangle
   if(sel){const sx=Math.min(sel.x1,sel.x2),sy=Math.min(sel.y1,sel.y2),ex=Math.max(sel.x1,sel.x2),ey=Math.max(sel.y1,sel.y2);
     ctx.strokeStyle='rgba(90,200,255,.9)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
@@ -759,7 +842,18 @@ function redraw(){
     ctx.strokeStyle=valid?'rgba(80,255,120,.8)':'rgba(255,60,60,.9)';ctx.lineWidth=2;
     ctx.strokeRect(cx*ts,(cy-1)*ts,ts,ts*2);
   }
-  if(curTool!=='npc'){ctx.strokeStyle='rgba(255,255,90,.8)';ctx.lineWidth=2;ctx.strokeRect(cx*ts,cy*ts,ts,ts);}
+  // Enemy cursor ghost
+  if(curTool==='enemy'&&selEnemyType>=0&&cx>=0&&cy>=0){
+    const valid=isEnemyPlacementValid(m,cx,cy);
+    ctx.globalAlpha=0.6;
+    if(!valid){ctx.fillStyle='rgba(255,40,40,0.4)';ctx.fillRect(cx*ts,cy*ts,ts,ts);}
+    ctx.drawImage(enemyImg[selEnemyType],cx*ts,cy*ts,ts,ts);
+    if(!valid){ctx.fillStyle='rgba(255,40,40,0.35)';ctx.fillRect(cx*ts,cy*ts,ts,ts);}
+    ctx.globalAlpha=1.0;
+    ctx.strokeStyle=valid?'rgba(255,90,120,.8)':'rgba(255,60,60,.9)';ctx.lineWidth=2;
+    ctx.strokeRect(cx*ts,cy*ts,ts,ts);
+  }
+  if(curTool!=='npc'&&curTool!=='enemy'){ctx.strokeStyle='rgba(255,255,90,.8)';ctx.lineWidth=2;ctx.strokeRect(cx*ts,cy*ts,ts,ts);}
 }
 function updateInfo(){const m=active>=0?proj.maps[active]:null;let tileInfo='Tile: —';
   if(m){
@@ -851,6 +945,11 @@ canvas.addEventListener('mousedown',e=>{e.preventDefault();if(active<0)return;hi
         const idx=m.npcs.findIndex(n=>n.tx===cx&&(n.ty===cy||n.ty-1===cy));
         if(idx>=0){m.npcs.splice(idx,1);buildNpcPanel();redraw();return;}}
     }
+    if(curTool==='enemy'){
+      const m=proj.maps[active];if(m&&m.enemies){
+        const idx=m.enemies.findIndex(e2=>e2.tx===cx&&e2.ty===cy);
+        if(idx>=0){m.enemies.splice(idx,1);buildEnemyPanel();redraw();return;}}
+    }
     if(editLayer==='spawn'){const m2=proj.maps[active];ensureSpawnLayer(m2);selZone=m2.spawnLayer[cy*m2.w+cx]||0;buildZonePalette();}
     else if(editLayer==='env'){const m2=proj.maps[active];ensureEnvLayer(m2);selEnv=m2.envLayer[cy*m2.w+cx]||0;buildEnvPalette();}
     else showCtxMenu(e.clientX,e.clientY);
@@ -860,6 +959,12 @@ canvas.addEventListener('mousedown',e=>{e.preventDefault();if(active<0)return;hi
     const m=proj.maps[active];if(!m)return;
     if(selNpcType>=0&&isNpcPlacementValid(m,cx,cy)){
       if(!m.npcs)m.npcs=[];m.npcs.push({tx:cx,ty:cy,type:NPC_TYPES[selNpcType].key});buildNpcPanel();redraw();}
+    updateInfo();return;
+  }
+  if(curTool==='enemy'){
+    const m=proj.maps[active];if(!m)return;
+    if(selEnemyType>=0&&isEnemyPlacementValid(m,cx,cy)){
+      if(!m.enemies)m.enemies=[];m.enemies.push({tx:cx,ty:cy,type:ENEMY_TYPES[selEnemyType].key});buildEnemyPanel();redraw();}
     updateInfo();return;
   }
   if(curTool==='select'){sel=null;selDrag=true;selAnchorX=cx;selAnchorY=cy;sel={x1:cx,y1:cy,x2:cx,y2:cy};redraw();updateInfo();return;}
@@ -877,7 +982,7 @@ document.getElementById('canvas-wrap').addEventListener('wheel',e=>{e.preventDef
 
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;if(active<0)return;const m=proj.maps[active];
-  if(e.key==='Escape'){sel=null;selNpcType=-1;if(curTool==='npc')buildNpcPanel();redraw();return;}
+  if(e.key==='Escape'){sel=null;selNpcType=-1;selEnemyType=-1;if(curTool==='npc')buildNpcPanel();if(curTool==='enemy')buildEnemyPanel();redraw();return;}
   switch(e.key){
     case'ArrowLeft':cx=Math.max(0,cx-1);e.preventDefault();break;
     case'ArrowRight':cx=Math.min(m.w-1,cx+1);e.preventDefault();break;
@@ -1563,6 +1668,12 @@ function exportC(){
         o+=`static const int16_t ${b}_npc_y[${b.toUpperCase()}_NPC_COUNT] = {${m.npcs.map(n=>'('+n.ty+'-1)*16').join(',')}};\n`;
         o+=`static const uint8_t ${b}_npc_type[${b.toUpperCase()}_NPC_COUNT] = {${m.npcs.map(n=>'FRIENDLY_'+n.type.toUpperCase()).join(',')}};\n\n`;
       }
+      if(m.enemies&&m.enemies.length>0){
+        o+=`#define ${b.toUpperCase()}_ENEMY_COUNT ${m.enemies.length}\n`;
+        o+=`static const int16_t ${b}_enemy_x[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>e.tx+'*16').join(',')}};\n`;
+        o+=`static const int16_t ${b}_enemy_y[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>e.ty+'*16').join(',')}};\n`;
+        o+=`static const char *${b}_enemy_type[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>'"'+e.type+'"').join(',')}};\n\n`;
+      }
     }});
   // Manifest bindings
   o+=`/*==========================================================================\n * MANIFEST BINDINGS\n *==========================================================================*/\n\n`;
@@ -1625,7 +1736,7 @@ function exportC(){
 }
 
 function rebuild(){rebuildList();rebuildManifest();if(active>=0)loadCur();else redraw();}
-initTiles();initNpcSprites();buildTilePalette();buildCollisionPalette();
+initTiles();initNpcSprites();initEnemySprites();buildTilePalette();buildCollisionPalette();
 active=-1;rebuild();
 </script>
 </body>
