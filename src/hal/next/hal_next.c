@@ -792,5 +792,7 @@ void hal_debug_number(const char *label, int32_t value) {
 void hal_set_daynight(uint8_t brightness) {
     (void)brightness; /* not implemented on this platform */
 }
+void hal_daynight_ui_begin(void) {}
+void hal_daynight_ui_end(void) {}
 
 #endif /* __Z88DK */

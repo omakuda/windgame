@@ -65,6 +65,10 @@ static uint8_t  s_dn_brightness = 255; /* 255=full day, 0=black */
 static uint32_t s_dn_palette[256];     /* brightness-adjusted ARGB32 */
 static uint8_t  s_dn_dirty = 1;       /* rebuild flag */
 
+/* UI overlay mask: pixels marked as UI skip day/night darkening */
+static uint8_t  s_ui_mask[SCREEN_W * SCREEN_H];
+static uint8_t  s_dn_ui_active = 0;   /* 1 = subsequent draws mark UI mask */
+
 /* Frame timing */
 static uint32_t s_frame_counter;
 static uint32_t s_frame_start_ms;
@@ -140,6 +144,14 @@ void hal_set_daynight(uint8_t brightness) {
         s_dn_brightness = brightness;
         s_dn_dirty = 1;
     }
+}
+
+void hal_daynight_ui_begin(void) {
+    s_dn_ui_active = 1;
+}
+
+void hal_daynight_ui_end(void) {
+    s_dn_ui_active = 0;
 }
 
 /*--------------------------------------------------------------------------
@@ -706,8 +718,13 @@ void hal_frame_end(void) {
     if (s_dn_dirty) rebuild_dn_palette();
 
     for (i = 0; i < SCREEN_W * SCREEN_H; i++) {
-        s_rgba[i] = s_dn_palette[s_pixels[i]];
+        if (s_ui_mask[i])
+            s_rgba[i] = s_palette_rgba[0][s_pixels[i]]; /* UI: undarkened */
+        else
+            s_rgba[i] = s_dn_palette[s_pixels[i]];       /* world: darkened */
     }
+    /* Clear UI mask for next frame */
+    memset(s_ui_mask, 0, sizeof(s_ui_mask));
 
     SDL_LockTexture(s_framebuffer, NULL, &tex_pixels, &pitch);
     memcpy(tex_pixels, s_rgba, SCREEN_W * SCREEN_H * sizeof(uint32_t));
@@ -1212,6 +1229,7 @@ void hal_draw_rect(int16_t x, int16_t y, uint8_t w, uint8_t h, color_t color) {
         for (px = x; px < x + w; px++) {
             if (px < 0 || px >= SCREEN_W) continue;
             s_pixels[py * SCREEN_W + px] = color;
+            if (s_dn_ui_active) s_ui_mask[py * SCREEN_W + px] = 1;
         }
     }
 }
@@ -1333,6 +1351,7 @@ uint8_t hal_draw_char(int16_t x, int16_t y, char ch, color_t color) {
                 int dx = x + col;
                 if (dx >= 0 && dx < SCREEN_W) {
                     s_pixels[dy * SCREEN_W + dx] = color;
+                    if (s_dn_ui_active) s_ui_mask[dy * SCREEN_W + dx] = 1;
                 }
             }
         }

@@ -267,6 +267,12 @@ void hal_debug_number(const char *label, int32_t value);
  * A slight blue shift is added at low brightness for a night look.
  *--------------------------------------------------------------------------*/
 void hal_set_daynight(uint8_t brightness);
+
+/* Mark subsequent draw calls as "UI" — these pixels won't be darkened
+ * by the day/night system. Call hal_daynight_ui_begin() before drawing
+ * menus/HUD, and hal_daynight_ui_end() after. */
+void hal_daynight_ui_begin(void);
+void hal_daynight_ui_end(void);
 #else
 #define hal_debug_print(msg)        ((void)0)
 #define hal_debug_number(lbl, val)  ((void)0)
