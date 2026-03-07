@@ -1112,9 +1112,11 @@ static void action_update(uint16_t input,uint16_t pressed){
         ahb_yo=PLAYER_HB_Y_OFFSET; ahb_h=PLAYER_HB_H;
     }
 
-    /* Crouching disables horizontal movement */
+    /* Crouching: friction-decay slide, no new input */
     if(s_player.crouching){
-        s_player.vel_fx=0;s_player.vel_x=0;
+        int16_t dec=FX_ACCEL; /* same friction as ground accel */
+        if(s_player.vel_fx>0){s_player.vel_fx-=dec;if(s_player.vel_fx<0)s_player.vel_fx=0;}
+        else if(s_player.vel_fx<0){s_player.vel_fx+=dec;if(s_player.vel_fx>0)s_player.vel_fx=0;}
     } else {
     /* Horizontal momentum: accelerate toward input, decelerate when idle. */
     /* Check if player is on an icy tile */
@@ -1196,12 +1198,15 @@ static void action_update(uint16_t input,uint16_t pressed){
         }
     } else {
         /* Grab ladder: pressing up/down AND touching ladder */
-        if(touching_ladder && (input&(INPUT_UP|INPUT_DOWN)))
+        if(touching_ladder && (input&(INPUT_UP|INPUT_DOWN))){
             s_player.on_ladder=1;
+            s_player.vel_fx=0;s_player.vel_x=0; /* stop horizontal motion */
+        }
         /* Standing on ladder top and pressing DOWN → start climbing down */
         if(!s_player.on_ladder && at_ladder_top && s_player.on_ground && (input&INPUT_DOWN)){
             s_player.on_ladder=1;
             s_player.on_ground=0;
+            s_player.vel_fx=0;s_player.vel_x=0;
             /* Nudge player down slightly so they're inside the ladder */
             s_player.y+=2;
         }
@@ -1241,9 +1246,17 @@ static void action_update(uint16_t input,uint16_t pressed){
     }
 
     /* Crouch: hold down while on ground */
-    if(s_player.on_ground&&!s_player.on_ladder&&(input&INPUT_DOWN))
+    if(s_player.on_ground&&!s_player.on_ladder&&(input&INPUT_DOWN)){
+        if(!s_player.crouching){
+            /* Entering crouch: preserve a small slide (25% of current speed, capped) */
+            int16_t slide=s_player.vel_fx/4;
+            int16_t slide_cap=FX_MAX_SPEED/6;
+            if(slide>slide_cap)slide=slide_cap;
+            if(slide<-slide_cap)slide=-slide_cap;
+            s_player.vel_fx=slide;
+        }
         s_player.crouching=1;
-    else s_player.crouching=0;
+    } else s_player.crouching=0;
 
     if(s_player.on_ladder){
         /* Jump off ladder */
@@ -1255,7 +1268,13 @@ static void action_update(uint16_t input,uint16_t pressed){
     }else{
         if((pressed&INPUT_JUMP)&&s_player.on_ground&&!s_player.crouching){
             s_player.jump_vel_fx=s_player.vel_fx; /* capture for air speed cap */
-            s_player.vel_fy=FY_JUMP;s_player.on_ground=0;}
+            s_player.vel_fy=FY_JUMP;
+            /* Running jump boost: +0.75 tiles height when moving > 25% max speed */
+            {int16_t abs_fx=s_player.vel_fx;if(abs_fx<0)abs_fx=-abs_fx;
+            if(abs_fx > FX_MAX_SPEED/4){
+                s_player.vel_fy -= 192; /* extra impulse ≈ 0.75 tiles */
+            }}
+            s_player.on_ground=0;}
         /* Z2-style gravity: lower gravity while jump button held and rising.
          * Normal gravity otherwise. No apex zone or fast-fall — just two rates. */
         {int16_t grav;
