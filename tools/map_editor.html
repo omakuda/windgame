@@ -242,6 +242,16 @@ input[type="file"] { display:none; }
     <div style="padding:0 8px;font-size:10px;color:var(--dim)">Select environment to preview tile rendering:</div>
     <select id="envPreviewSelect" style="margin:4px 8px;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onEnvPreview()"></select>
     <div id="env-tile-preview" style="padding:4px 8px"></div>
+    <h3 style="margin-top:8px">TIME OF DAY</h3>
+    <div style="padding:0 8px;font-size:10px;color:var(--dim)">Preview brightness at different times:</div>
+    <select id="todPreview" style="margin:4px 8px;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onTodPreview()">
+      <option value="255">Day (full bright)</option>
+      <option value="204">Transition 1 (dusk start)</option>
+      <option value="153">Transition 2</option>
+      <option value="102">Transition 3</option>
+      <option value="50">Transition 4 (near night)</option>
+      <option value="50">Night</option>
+    </select>
   </div>
 </div>
 <div id="ctx-menu"></div>
@@ -625,6 +635,11 @@ function onEnvPreview(){
     wrap.appendChild(cv);
   });
 }
+let todBrightness=255; /* 255=day, 50=night */
+function onTodPreview(){
+  todBrightness=parseInt(document.getElementById('todPreview').value)||255;
+  redraw();
+}
 
 // ======== NPC PANEL ========
 function buildNpcPanel(){
@@ -854,6 +869,13 @@ function redraw(){
     ctx.strokeRect(cx*ts,cy*ts,ts,ts);
   }
   if(curTool!=='npc'&&curTool!=='enemy'){ctx.strokeStyle='rgba(255,255,90,.8)';ctx.lineWidth=2;ctx.strokeRect(cx*ts,cy*ts,ts,ts);}
+  /* Time-of-day preview overlay */
+  if(todBrightness<255){
+    const alpha=(255-todBrightness)/255;
+    /* Blue-shifted night overlay */
+    ctx.fillStyle=`rgba(0,0,${Math.floor(30*alpha)},${alpha.toFixed(2)})`;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
 }
 function updateInfo(){const m=active>=0?proj.maps[active]:null;let tileInfo='Tile: —';
   if(m){

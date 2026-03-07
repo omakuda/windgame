@@ -281,6 +281,12 @@ void hal_set_daynight(uint8_t brightness);
  * menus/HUD, and hal_daynight_ui_end() after. */
 void hal_daynight_ui_begin(void);
 void hal_daynight_ui_end(void);
+
+/* Load night-variant tile patterns. These replace the base tile patterns
+ * when brightness < 128 (nighttime). Only tiles with loaded night
+ * variants are swapped; others keep the base pattern (which still gets
+ * darkened by the day/night palette LUT). */
+void hal_tiles_load_night(const uint8_t *data, uint8_t first, uint8_t count);
 #else
 #define hal_debug_print(msg)        ((void)0)
 #define hal_debug_number(lbl, val)  ((void)0)

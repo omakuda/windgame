@@ -717,12 +717,23 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"dn_speed",        &T.dn_speed,              1,    1,    0,  50},
 };
 
+static uint8_t s_dn_action_accum = 0; /* sub-frame accumulator for 1/10 speed */
+
 static void daynight_update(void) {
     int16_t spd = T.dn_speed;
-    if (spd > 0) {
+    if (spd <= 0) { hal_set_daynight(daynight_brightness()); return; }
+
+    if (s_scene == SCENE_ACTION) {
+        /* In action scenes: time advances at 1/10 speed */
+        s_dn_action_accum++;
+        if (s_dn_action_accum >= 10) {
+            s_dn_action_accum = 0;
+            s_dn_clock += (uint32_t)spd;
+        }
+    } else {
         s_dn_clock += (uint32_t)spd;
-        if (s_dn_clock >= DN_CYCLE_FRAMES) s_dn_clock -= DN_CYCLE_FRAMES;
     }
+    if (s_dn_clock >= DN_CYCLE_FRAMES) s_dn_clock -= DN_CYCLE_FRAMES;
     hal_set_daynight(daynight_brightness());
 }
 
@@ -2088,12 +2099,11 @@ static void render(void){
         /* Day/night clock: HH:MM with blinking colon */
         {uint32_t total_min = s_dn_clock / DN_FRAMES_PER_MIN;
         uint32_t gh = total_min / 60;
-        uint32_t gm = total_min % 60;
+        uint32_t gm = (total_min % 60) / 10 * 10; /* round to 10-min */
         uint8_t blink = ((hal_frame_count() / 25) & 1); /* toggle every 0.5s */
         hal_draw_number(SCREEN_W-48,2,(int32_t)gh,0xFC);
         hal_draw_text(SCREEN_W-36,2,blink?":":" ",0xFC);
-        if(gm<10){hal_draw_text(SCREEN_W-30,2,"0",0xFC);hal_draw_number(SCREEN_W-22,2,(int32_t)gm,0xFC);}
-        else{hal_draw_number(SCREEN_W-30,2,(int32_t)gm,0xFC);}
+        hal_draw_number(SCREEN_W-30,2,(int32_t)gm,0xFC);
         }
         switch(events_phase()){
         case PHASE_WAITING:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"Next:",0xFF);hal_draw_number(44,12,(int32_t)(s2+1),0xFF);hal_draw_text(52,12,"s",0xFF);break;}

@@ -799,5 +799,8 @@ void hal_set_daynight(uint8_t brightness) {
 }
 void hal_daynight_ui_begin(void) {}
 void hal_daynight_ui_end(void) {}
+void hal_tiles_load_night(const uint8_t *data, uint8_t first, uint8_t count) {
+    (void)data; (void)first; (void)count;
+}
 
 #endif /* __Z88DK */

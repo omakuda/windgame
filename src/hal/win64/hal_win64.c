@@ -85,6 +85,10 @@ static uint8_t s_sprite_patterns[256][SPRITE_W * SPRITE_H];
 
 /* Tilemap */
 static uint8_t s_tile_patterns[256][TILE_SIZE * TILE_SIZE];
+/* Night tile variants: if s_tile_night[i] has any non-zero pixel,
+ * it replaces s_tile_patterns[i] when brightness < 128 (night). */
+static uint8_t s_tile_night[256][TILE_SIZE * TILE_SIZE];
+static uint8_t s_tile_has_night[256]; /* flag: 1 if night variant loaded */
 static uint8_t s_tilemap_buf[128 * 64]; /* mutable copy for hal_tilemap_put */
 static uint8_t *s_tilemap_data;
 static uint16_t s_tilemap_w;
@@ -162,6 +166,13 @@ void hal_daynight_ui_end(void) {
     s_dn_ui_active = 0;
 }
 
+void hal_tiles_load_night(const uint8_t *data, uint8_t first, uint8_t count) {
+    uint8_t i;
+    memcpy(&s_tile_night[first], data,
+           (size_t)count * TILE_SIZE * TILE_SIZE);
+    for (i = first; i < first + count; i++) s_tile_has_night[i] = 1;
+}
+
 /*--------------------------------------------------------------------------
  * SYSTEM LIFECYCLE
  *--------------------------------------------------------------------------*/
@@ -232,6 +243,8 @@ int hal_init(void) {
     memset(s_sprites, 0, sizeof(s_sprites));
     memset(s_sprite_patterns, 0, sizeof(s_sprite_patterns));
     memset(s_tile_patterns, 0, sizeof(s_tile_patterns));
+    memset(s_tile_night, 0, sizeof(s_tile_night));
+    memset(s_tile_has_night, 0, sizeof(s_tile_has_night));
     memset(s_sfx, 0, sizeof(s_sfx));
 
     /*------------------------------------------------------------------
@@ -1143,7 +1156,11 @@ void hal_tilemap_draw(void) {
             }
 
             tile_idx = s_tilemap_data[map_ty * s_tilemap_w + map_tx];
-            tile = s_tile_patterns[tile_idx];
+            /* Use night variant if brightness < 128 and variant exists */
+            if (s_dn_brightness < 128 && s_tile_has_night[tile_idx])
+                tile = s_tile_night[tile_idx];
+            else
+                tile = s_tile_patterns[tile_idx];
 
             sx = vx * TILE_SIZE - offset_x;
             sy = vy * TILE_SIZE - offset_y;
