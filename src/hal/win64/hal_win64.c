@@ -80,6 +80,14 @@ static uint8_t s_tilemap_buf[128 * 64]; /* mutable copy for hal_tilemap_put */
 static uint8_t *s_tilemap_data;
 static uint16_t s_tilemap_w;
 static uint16_t s_tilemap_h;
+
+/* Background tile layer: drawn behind foreground, visible where fg tile=0 */
+static uint8_t s_bg_tilemap_buf[128 * 64];
+static uint8_t *s_bg_tilemap_data;
+static uint16_t s_bg_tilemap_w;
+static uint16_t s_bg_tilemap_h;
+static uint8_t  s_bg_repeat; /* 1 = tile the bg pattern across the map */
+static uint16_t s_tilemap_h;
 static int16_t  s_scroll_x;
 static int16_t  s_scroll_y;
 
@@ -610,6 +618,10 @@ int hal_init(void) {
     s_tilemap_data = NULL;
     s_tilemap_w = 0;
     s_tilemap_h = 0;
+    s_bg_tilemap_data = NULL;
+    s_bg_tilemap_w = 0;
+    s_bg_tilemap_h = 0;
+    s_bg_repeat = 0;
     s_scroll_x = 0;
     s_scroll_y = 0;
 
@@ -1024,6 +1036,23 @@ void hal_tilemap_set(const uint8_t *data, uint16_t map_w, uint16_t map_h) {
     s_scroll_y = 0;
 }
 
+void hal_tilemap_set_bg(const uint8_t *data, uint16_t w, uint16_t h, uint8_t repeat) {
+    size_t sz = (size_t)w * h;
+    if (sz > sizeof(s_bg_tilemap_buf)) sz = sizeof(s_bg_tilemap_buf);
+    memcpy(s_bg_tilemap_buf, data, sz);
+    s_bg_tilemap_data = s_bg_tilemap_buf;
+    s_bg_tilemap_w = w;
+    s_bg_tilemap_h = h;
+    s_bg_repeat = repeat;
+}
+
+void hal_tilemap_clear_bg(void) {
+    s_bg_tilemap_data = NULL;
+    s_bg_tilemap_w = 0;
+    s_bg_tilemap_h = 0;
+    s_bg_repeat = 0;
+}
+
 void hal_tilemap_scroll(int16_t scroll_x, int16_t scroll_y) {
     s_scroll_x = scroll_x;
     s_scroll_y = scroll_y;
@@ -1066,11 +1095,26 @@ void hal_tilemap_draw(void) {
                 int dy = sy + py;
                 if (dy < 0 || dy >= SCREEN_H) continue;
 
-                for (px = 0; px < TILE_SIZE; px++) {
+            for (px = 0; px < TILE_SIZE; px++) {
                     int dx = sx + px;
                     if (dx < 0 || dx >= SCREEN_W) continue;
 
                     uint8_t color = tile[py * TILE_SIZE + px];
+                    if (color == 0 && s_bg_tilemap_data) {
+                        /* Foreground empty — try background */
+                        int bg_tx, bg_ty;
+                        if (s_bg_repeat) {
+                            bg_tx = ((map_tx % (int)s_bg_tilemap_w) + (int)s_bg_tilemap_w) % (int)s_bg_tilemap_w;
+                            bg_ty = ((map_ty % (int)s_bg_tilemap_h) + (int)s_bg_tilemap_h) % (int)s_bg_tilemap_h;
+                        } else {
+                            bg_tx = map_tx; bg_ty = map_ty;
+                        }
+                        if (bg_tx >= 0 && bg_tx < (int)s_bg_tilemap_w &&
+                            bg_ty >= 0 && bg_ty < (int)s_bg_tilemap_h) {
+                            uint8_t bg_idx = s_bg_tilemap_data[bg_ty * s_bg_tilemap_w + bg_tx];
+                            color = s_tile_patterns[bg_idx][py * TILE_SIZE + px];
+                        }
+                    }
                     if (color != 0) {
                         s_pixels[dy * SCREEN_W + dx] = color;
                     }

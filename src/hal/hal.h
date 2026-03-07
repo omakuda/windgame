@@ -126,6 +126,14 @@ void hal_tiles_load(const uint8_t *data, uint8_t first, uint8_t count);
    remain valid. map_w and map_h are in tiles. */
 void hal_tilemap_set(const uint8_t *data, uint16_t map_w, uint16_t map_h);
 
+/* Set the background tile layer. Drawn behind the foreground tilemap.
+ * Visible where the foreground tile index is 0 (empty).
+ * If repeat=1, the background tiles wrap/repeat across the entire map. */
+void hal_tilemap_set_bg(const uint8_t *data, uint16_t w, uint16_t h, uint8_t repeat);
+
+/* Clear the background tile layer. */
+void hal_tilemap_clear_bg(void);
+
 /* Set the tilemap scroll position in pixels. The HAL handles wrapping
    and only drawing visible tiles. */
 void hal_tilemap_scroll(int16_t scroll_x, int16_t scroll_y);

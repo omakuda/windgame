@@ -493,6 +493,11 @@ void hal_tilemap_set(const uint8_t *data, uint16_t map_w, uint16_t map_h) {
     s_scroll_y = 0;
 }
 
+void hal_tilemap_set_bg(const uint8_t *data, uint16_t w, uint16_t h, uint8_t repeat) {
+    (void)data; (void)w; (void)h; (void)repeat; /* not implemented on Next */
+}
+void hal_tilemap_clear_bg(void) { /* not implemented on Next */ }
+
 void hal_tilemap_scroll(int16_t scroll_x, int16_t scroll_y) {
     s_scroll_x = scroll_x;
     s_scroll_y = scroll_y;
