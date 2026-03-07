@@ -1593,13 +1593,15 @@ static uint8_t s_debug_room;    /* selected room index for dungeon spawn */
 
 /* Main menu items */
 #define DMENU_LOAD_MAP    0
-#define DMENU_BACK_OW     1
-#define DMENU_CONTROLS    2
-#define DMENU_HEAL        3
-#define DMENU_EXIT        4
-#define DMAIN_ITEMS       5
+#define DMENU_CHAR_SET    1
+#define DMENU_BACK_OW     2
+#define DMENU_CONTROLS    3
+#define DMENU_HEAL        4
+#define DMENU_EXIT        5
+#define DMAIN_ITEMS       6
 static const char *dmain_labels[DMAIN_ITEMS]={
-    "Load Map...","Back to Overworld","Controls","Heal Full","Exit Game"
+    "Load Map...","Character Settings...","Back to Overworld",
+    "Controls","Heal Full","Exit Game"
 };
 
 /* Load sub-categories */
@@ -1715,6 +1717,8 @@ static void debug_input(uint16_t pressed){
             switch(s_debug_cursor){
             case DMENU_LOAD_MAP:
                 s_debug_level=1;s_debug_cursor=0;s_debug_scroll=0;return;
+            case DMENU_CHAR_SET:
+                s_console_open=1;s_console_cursor=0;s_console_scroll=0;return;
             case DMENU_BACK_OW:
                 s_debug_menu=0;s_force_reinit=0;s_scene=SCENE_OVERWORLD;return;
             case DMENU_CONTROLS:
