@@ -697,17 +697,17 @@ typedef struct { const char *name; int16_t *ptr; int16_t step; int16_t def; int1
 
 #define TVAR_COUNT 18
 static const tvar_t tvars[TVAR_COUNT] = {
-    {"fy_grav",         &T.fy_grav,           10,   86,    1,  500},
-    {"fy_grav_held",    &T.fy_grav_held,      5,    57,    1,  500},
+    {"fy_grav",         &T.fy_grav,           10,   106,   1,  500},
+    {"fy_grav_held",    &T.fy_grav_held,      5,    67,    1,  500},
     {"fy_jump",         &T.fy_jump,           50,  -1230, -3000, 0},
     {"fy_max_fall",     &T.fy_max_fall,       50,   1535,  256, 5000},
     {"fy_climb",        &T.fy_climb, 32,  512,   64, 2048},
     {"land_crouch_thr", &T.land_crouch_thresh, 64,  1280,  0,  5000},
     {"land_crouch_frm", &T.land_crouch_frames, 1, 8, 0, 60},
-    {"fx_max_speed",    &T.fx_max_speed,      50,   1383,  64, 4096},
-    {"fx_accel",        &T.fx_accel,          5,    57,    1,  500},
-    {"fx_air_accel",    &T.fx_air_accel,      5,    38,    1,  500},
-    {"fx_air_max",      &T.fx_air_max,        50,   1383,  64, 4096},
+    {"fx_max_speed",    &T.fx_max_speed,      50,   683,   64, 4096},
+    {"fx_accel",        &T.fx_accel,          5,    52,    1,  500},
+    {"fx_air_accel",    &T.fx_air_accel,      5,    18,    1,  500},
+    {"fx_air_max",      &T.fx_air_max,        50,   683,   64, 4096},
     {"attack_dur",      &T.attack_duration, 1, ATTACK_DURATION_DEF, 1, 120},
     {"invuln_time",     &T.invuln_time, 5, INVULN_TIME_DEF, 0, 255},
     {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
