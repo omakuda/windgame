@@ -512,6 +512,59 @@ static encounter_t s_last_encounter;
 static uint8_t s_paused, s_bag_open, s_friendly_dialog;
 static uint8_t s_transition_timer; /* frames of black screen on scene change */
 #define TRANSITION_FRAMES 12  /* ~0.25s at 50Hz */
+
+/*----------------------------------------------------------------------
+ * DAY/NIGHT CYCLE
+ *
+ * 24 game-hours. 1 game-hour = 1500 frames (30 real seconds at 50fps).
+ * Total cycle = 36000 frames = 12 real minutes.
+ *
+ * Schedule:
+ *   Hours  0- 3: night → day transition (4h, brightness ramps 50→255)
+ *   Hours  4-11: full day (8h, brightness = 255)
+ *   Hours 12-15: day → night transition (4h, brightness ramps 255→50)
+ *   Hours 16-23: full night (8h, brightness = 50)
+ *
+ * Brightness changes smoothly (interpolated per-frame within each hour).
+ *----------------------------------------------------------------------*/
+#define DN_FRAMES_PER_HOUR 1500
+#define DN_CYCLE_FRAMES    (24 * DN_FRAMES_PER_HOUR) /* 36000 */
+#define DN_BRIGHT_DAY      255
+#define DN_BRIGHT_NIGHT    50
+
+static uint32_t s_dn_clock = 4 * DN_FRAMES_PER_HOUR; /* start at dawn (hour 4) */
+
+static uint8_t daynight_brightness(void) {
+    uint32_t hour = s_dn_clock / DN_FRAMES_PER_HOUR;
+    uint32_t frac = s_dn_clock % DN_FRAMES_PER_HOUR; /* 0..1499 within hour */
+
+    if (hour < 4) {
+        /* Night→day transition (hours 0-3) */
+        uint32_t t = hour * DN_FRAMES_PER_HOUR + frac;
+        uint32_t total = 4 * DN_FRAMES_PER_HOUR;
+        return (uint8_t)(DN_BRIGHT_NIGHT + (uint32_t)(DN_BRIGHT_DAY - DN_BRIGHT_NIGHT) * t / total);
+    } else if (hour < 12) {
+        /* Full day (hours 4-11) */
+        return DN_BRIGHT_DAY;
+    } else if (hour < 16) {
+        /* Day→night transition (hours 12-15) */
+        uint32_t t = (hour - 12) * DN_FRAMES_PER_HOUR + frac;
+        uint32_t total = 4 * DN_FRAMES_PER_HOUR;
+        return (uint8_t)(DN_BRIGHT_DAY - (uint32_t)(DN_BRIGHT_DAY - DN_BRIGHT_NIGHT) * t / total);
+    } else {
+        /* Full night (hours 16-23) */
+        return DN_BRIGHT_NIGHT;
+    }
+}
+
+static void daynight_update(void) {
+    int16_t spd = T.dn_speed;
+    if (spd > 0) {
+        s_dn_clock += (uint32_t)spd;
+        if (s_dn_clock >= DN_CYCLE_FRAMES) s_dn_clock -= DN_CYCLE_FRAMES;
+    }
+    hal_set_daynight(daynight_brightness());
+}
 /* Location re-entry prevention: remember which tile player exited onto */
 static uint16_t s_immune_tx, s_immune_ty;
 static uint8_t s_immune_active;
@@ -584,6 +637,9 @@ typedef struct {
 
     /* Overworld */
     uint8_t ow_move_speed;    /* overworld pixels per frame                 */
+
+    /* Day/night */
+    int16_t dn_speed;         /* clock speed multiplier (1=normal, 10=fast) */
 } tunable_t;
 
 static tunable_t T = {
@@ -604,6 +660,7 @@ static tunable_t T = {
     /* arrow_speed */   5,
     /* arrow_life */    60,
     /* ow_move_spd */   1,
+    /* dn_speed */      1,
 };
 
 /* Convenience macros referencing tunable struct */
@@ -639,7 +696,7 @@ static tunable_t T = {
 
 typedef struct { const char *name; int16_t *ptr; int16_t step; int16_t def; int16_t min; int16_t max; } tvar_t;
 
-#define TVAR_COUNT 17
+#define TVAR_COUNT 18
 static const tvar_t tvars[TVAR_COUNT] = {
     {"fy_grav",         &T.fy_grav,           10,   86,    1,  500},
     {"fy_grav_held",    &T.fy_grav_held,      5,    57,    1,  500},
@@ -658,6 +715,7 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"arrow_speed",     &T.arrow_speed,       1,    5,     1,  20},
     {"arrow_lifetime",  (int16_t*)&T.arrow_lifetime, 5, 60, 10, 255},
     {"ow_move_speed",   (int16_t*)&T.ow_move_speed, 1, 1,  1,  8},
+    {"dn_speed",        &T.dn_speed,              1,    1,    0,  50},
 };
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
@@ -1930,6 +1988,9 @@ static void render(void){
 
     if(s_scene==SCENE_OVERWORLD){
         hal_draw_text(2,2,world_maps[s_cur_world_map].name,0xFF);
+        /* Day/night clock display */
+        {uint32_t gh=s_dn_clock/DN_FRAMES_PER_HOUR;
+        hal_draw_number(SCREEN_W-40,2,(int32_t)gh,0xFC);hal_draw_text(SCREEN_W-28,2,":00",0xFC);}
         switch(events_phase()){
         case PHASE_WAITING:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"Next:",0xFF);hal_draw_number(44,12,(int32_t)(s2+1),0xFF);hal_draw_text(52,12,"s",0xFF);break;}
         case PHASE_SPAWNED:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"x",0xFF);hal_draw_number(10,12,(int32_t)events_count(),0xFF);
@@ -2012,7 +2073,7 @@ int main(void){
         else if(!s_paused){switch(s_scene){case SCENE_OVERWORLD:overworld_update(input,pressed);break;case SCENE_ACTION:action_update(input,pressed);break;}}
         if(s_scene!=last_scene||s_force_reinit){s_paused=0;s_bag_open=0;s_transition_timer=TRANSITION_FRAMES;s_force_reinit=0;
             if(s_scene==SCENE_ACTION)action_init();else overworld_init();last_scene=s_scene;}
-        hal_music_update();render();hal_frame_end();rng_next();}
+        hal_music_update();daynight_update();render();hal_frame_end();rng_next();}
 #ifdef _MSC_VER
     __assume(0);
 #endif

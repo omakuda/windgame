@@ -257,6 +257,16 @@ void hal_memset(void *dst, uint8_t val, uint16_t size);
 #ifdef DEBUG
 void hal_debug_print(const char *msg);
 void hal_debug_number(const char *label, int32_t value);
+
+/*--------------------------------------------------------------------------
+ * DAY/NIGHT CYCLE
+ *
+ * Set the global brightness level (0-255). 255 = full daylight, 0 = black.
+ * The HAL applies this as a color scaling LUT on all pixels during
+ * frame_end, so all tiles, sprites, and UI are affected uniformly.
+ * A slight blue shift is added at low brightness for a night look.
+ *--------------------------------------------------------------------------*/
+void hal_set_daynight(uint8_t brightness);
 #else
 #define hal_debug_print(msg)        ((void)0)
 #define hal_debug_number(lbl, val)  ((void)0)

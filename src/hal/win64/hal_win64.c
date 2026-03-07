@@ -60,6 +60,11 @@ static uint32_t s_rgba[SCREEN_W * SCREEN_H];
 static uint8_t  s_palette_raw[2][256];
 static uint32_t s_palette_rgba[2][256];
 
+/* Day/night cycle: darkened palette applied at frame_end */
+static uint8_t  s_dn_brightness = 255; /* 255=full day, 0=black */
+static uint32_t s_dn_palette[256];     /* brightness-adjusted ARGB32 */
+static uint8_t  s_dn_dirty = 1;       /* rebuild flag */
+
 /* Frame timing */
 static uint32_t s_frame_counter;
 static uint32_t s_frame_start_ms;
@@ -102,6 +107,38 @@ static void rebuild_palette_rgba(uint8_t palette_id) {
     int i;
     for (i = 0; i < 256; i++) {
         s_palette_rgba[palette_id][i] = rgb8_to_argb32(s_palette_raw[palette_id][i]);
+    }
+    if (palette_id == 0) s_dn_dirty = 1; /* base palette changed, rebuild DN */
+}
+
+static void rebuild_dn_palette(void) {
+    /* Build a brightness-adjusted ARGB32 palette from the base palette.
+     * At full brightness (255): colors unchanged.
+     * At low brightness: R and G scale down, B retains more (blue shift).
+     * Minimum brightness ~20% to keep things visible. */
+    int i;
+    uint32_t br = s_dn_brightness;
+    for (i = 0; i < 256; i++) {
+        uint32_t base = s_palette_rgba[0][i];
+        uint32_t r = (base >> 16) & 0xFF;
+        uint32_t g = (base >> 8) & 0xFF;
+        uint32_t b = base & 0xFF;
+        /* Scale R and G by brightness, B gets a blue-shift bonus at night */
+        r = (r * br) / 255;
+        g = (g * br) / 255;
+        /* Blue retains more: blend toward a night-blue floor */
+        {uint32_t b_floor = (255 - br) / 8; /* subtle blue floor at night */
+        b = (b * br) / 255;
+        if (b < b_floor) b = b_floor;}
+        s_dn_palette[i] = 0xFF000000u | (r << 16) | (g << 8) | b;
+    }
+    s_dn_dirty = 0;
+}
+
+void hal_set_daynight(uint8_t brightness) {
+    if (brightness != s_dn_brightness) {
+        s_dn_brightness = brightness;
+        s_dn_dirty = 1;
     }
 }
 
@@ -665,8 +702,11 @@ void hal_frame_end(void) {
     void *tex_pixels;
     int i;
 
+    /* Rebuild day/night palette if brightness changed */
+    if (s_dn_dirty) rebuild_dn_palette();
+
     for (i = 0; i < SCREEN_W * SCREEN_H; i++) {
-        s_rgba[i] = s_palette_rgba[0][s_pixels[i]];
+        s_rgba[i] = s_dn_palette[s_pixels[i]];
     }
 
     SDL_LockTexture(s_framebuffer, NULL, &tex_pixels, &pitch);
