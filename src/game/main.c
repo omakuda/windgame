@@ -557,14 +557,7 @@ static uint8_t daynight_brightness(void) {
     }
 }
 
-static void daynight_update(void) {
-    int16_t spd = T.dn_speed;
-    if (spd > 0) {
-        s_dn_clock += (uint32_t)spd;
-        if (s_dn_clock >= DN_CYCLE_FRAMES) s_dn_clock -= DN_CYCLE_FRAMES;
-    }
-    hal_set_daynight(daynight_brightness());
-}
+static void daynight_update(void); /* defined after tunable_t T */
 /* Location re-entry prevention: remember which tile player exited onto */
 static uint16_t s_immune_tx, s_immune_ty;
 static uint8_t s_immune_active;
@@ -717,6 +710,15 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"ow_move_speed",   (int16_t*)&T.ow_move_speed, 1, 1,  1,  8},
     {"dn_speed",        &T.dn_speed,              1,    1,    0,  50},
 };
+
+static void daynight_update(void) {
+    int16_t spd = T.dn_speed;
+    if (spd > 0) {
+        s_dn_clock += (uint32_t)spd;
+        if (s_dn_clock >= DN_CYCLE_FRAMES) s_dn_clock -= DN_CYCLE_FRAMES;
+    }
+    hal_set_daynight(daynight_brightness());
+}
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
  * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
