@@ -519,41 +519,42 @@ static uint8_t s_transition_timer; /* frames of black screen on scene change */
  * 24 game-hours. 1 game-hour = 1500 frames (30 real seconds at 50fps).
  * Total cycle = 36000 frames = 12 real minutes.
  *
- * Schedule:
- *   Hours  0- 3: night → day transition (4h, brightness ramps 50→255)
- *   Hours  4-11: full day (8h, brightness = 255)
- *   Hours 12-15: day → night transition (4h, brightness ramps 255→50)
- *   Hours 16-23: full night (8h, brightness = 50)
+ * Schedule (military time):
+ *   0400-0800: night → day transition (4h, brightness ramps 50→255)
+ *   0800-1600: full day (8h, brightness = 255)
+ *   1600-2000: day → night transition (4h, brightness ramps 255→50)
+ *   2000-0400: full night (8h, brightness = 50)
  *
- * Brightness changes smoothly (interpolated per-frame within each hour).
+ * Brightness interpolated per-frame within transition hours.
  *----------------------------------------------------------------------*/
 #define DN_FRAMES_PER_HOUR 1500
+#define DN_FRAMES_PER_MIN  (DN_FRAMES_PER_HOUR / 60)  /* 25 */
 #define DN_CYCLE_FRAMES    (24 * DN_FRAMES_PER_HOUR) /* 36000 */
 #define DN_BRIGHT_DAY      255
 #define DN_BRIGHT_NIGHT    50
 
-static uint32_t s_dn_clock = 4 * DN_FRAMES_PER_HOUR; /* start at dawn (hour 4) */
+static uint32_t s_dn_clock = 8 * DN_FRAMES_PER_HOUR; /* start at 0800 */
 
 static uint8_t daynight_brightness(void) {
     uint32_t hour = s_dn_clock / DN_FRAMES_PER_HOUR;
-    uint32_t frac = s_dn_clock % DN_FRAMES_PER_HOUR; /* 0..1499 within hour */
+    uint32_t frac = s_dn_clock % DN_FRAMES_PER_HOUR;
 
-    if (hour < 4) {
-        /* Night→day transition (hours 0-3) */
-        uint32_t t = hour * DN_FRAMES_PER_HOUR + frac;
-        uint32_t total = 4 * DN_FRAMES_PER_HOUR;
-        return (uint8_t)(DN_BRIGHT_NIGHT + (uint32_t)(DN_BRIGHT_DAY - DN_BRIGHT_NIGHT) * t / total);
-    } else if (hour < 12) {
-        /* Full day (hours 4-11) */
+    if (hour >= 8 && hour < 16) {
+        /* Full day 0800-1600 */
         return DN_BRIGHT_DAY;
-    } else if (hour < 16) {
-        /* Day→night transition (hours 12-15) */
-        uint32_t t = (hour - 12) * DN_FRAMES_PER_HOUR + frac;
+    } else if (hour >= 16 && hour < 20) {
+        /* Day→night transition 1600-2000 */
+        uint32_t t = (hour - 16) * DN_FRAMES_PER_HOUR + frac;
         uint32_t total = 4 * DN_FRAMES_PER_HOUR;
         return (uint8_t)(DN_BRIGHT_DAY - (uint32_t)(DN_BRIGHT_DAY - DN_BRIGHT_NIGHT) * t / total);
-    } else {
-        /* Full night (hours 16-23) */
+    } else if (hour >= 20 || hour < 4) {
+        /* Full night 2000-0400 */
         return DN_BRIGHT_NIGHT;
+    } else {
+        /* Night→day transition 0400-0800 */
+        uint32_t t = (hour - 4) * DN_FRAMES_PER_HOUR + frac;
+        uint32_t total = 4 * DN_FRAMES_PER_HOUR;
+        return (uint8_t)(DN_BRIGHT_NIGHT + (uint32_t)(DN_BRIGHT_DAY - DN_BRIGHT_NIGHT) * t / total);
     }
 }
 
@@ -1990,9 +1991,16 @@ static void render(void){
 
     if(s_scene==SCENE_OVERWORLD){
         hal_draw_text(2,2,world_maps[s_cur_world_map].name,0xFF);
-        /* Day/night clock display */
-        {uint32_t gh=s_dn_clock/DN_FRAMES_PER_HOUR;
-        hal_draw_number(SCREEN_W-40,2,(int32_t)gh,0xFC);hal_draw_text(SCREEN_W-28,2,":00",0xFC);}
+        /* Day/night clock: HH:MM with blinking colon */
+        {uint32_t total_min = s_dn_clock / DN_FRAMES_PER_MIN;
+        uint32_t gh = total_min / 60;
+        uint32_t gm = total_min % 60;
+        uint8_t blink = ((hal_frame_count() / 25) & 1); /* toggle every 0.5s */
+        hal_draw_number(SCREEN_W-48,2,(int32_t)gh,0xFC);
+        hal_draw_text(SCREEN_W-36,2,blink?":":" ",0xFC);
+        if(gm<10){hal_draw_text(SCREEN_W-30,2,"0",0xFC);hal_draw_number(SCREEN_W-22,2,(int32_t)gm,0xFC);}
+        else{hal_draw_number(SCREEN_W-30,2,(int32_t)gm,0xFC);}
+        }
         switch(events_phase()){
         case PHASE_WAITING:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"Next:",0xFF);hal_draw_number(44,12,(int32_t)(s2+1),0xFF);hal_draw_text(52,12,"s",0xFF);break;}
         case PHASE_SPAWNED:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"x",0xFF);hal_draw_number(10,12,(int32_t)events_count(),0xFF);
