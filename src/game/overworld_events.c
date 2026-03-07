@@ -497,3 +497,14 @@ uint8_t events_count(void) {
 uint16_t events_timer(void) {
     return s_phase_timer;
 }
+
+/* Traveling events — stub implementation (TODO: full system) */
+void events_try_spawn_traveling(uint16_t tx, uint16_t ty) {
+    (void)tx; (void)ty;
+    /* No-op: traveling events not yet implemented */
+}
+
+uint8_t events_check_traveling(uint16_t tx, uint16_t ty) {
+    (void)tx; (void)ty;
+    return 0; /* No traveling events active */
+}

@@ -219,6 +219,12 @@ uint8_t events_count(void);
 /* Query: frames remaining in current phase timer. */
 uint16_t events_timer(void);
 
+/* Traveling events: invisible tile-based encounters.
+ * try_spawn: attempt to place a traveling event near the given tile.
+ * check: returns >0 if a traveling event is at the given tile. */
+void events_try_spawn_traveling(uint16_t tx, uint16_t ty);
+uint8_t events_check_traveling(uint16_t tx, uint16_t ty);
+
 /*--------------------------------------------------------------------------
  * Built-in spawn tables
  *--------------------------------------------------------------------------*/
