@@ -2,6 +2,7 @@
 build/out/
 build/out_next/
 dist/
+out/
 
 # IDE / editor
 .vscode/
