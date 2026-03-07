@@ -470,6 +470,9 @@ static const uint8_t dungeon_entry_room[ENTRY_H * ENTRY_W] = {
 #define PLAYER_HB_W         10
 #define PLAYER_HB_H         28   /* tall hitbox for 16x32 sprite */
 #define PLAYER_SPRITE_H     32   /* total sprite height in action scenes */
+/* Crouch hitbox: one tile tall, aligned with bottom sprite (y+16) */
+#define PLAYER_CROUCH_HB_Y_OFFSET  16  /* starts at bottom sprite */
+#define PLAYER_CROUCH_HB_H         14  /* one tile minus margin */
 #define PATTERN_ACT_TOP      2   /* sprite pattern: action player top half  */
 #define PATTERN_ACT_BOT      3   /* sprite pattern: action player bottom    */
 #define PATTERN_ACT_CROUCH   14  /* sprite pattern: action player crouching */
@@ -1101,10 +1104,20 @@ static void action_update(uint16_t input,uint16_t pressed){
     int16_t nx,ny,hb_x,hb_y,abs_vfx;
     uint8_t on_ice=0;
     int16_t air_max; /* max horizontal speed allowed in air */
+    /* Active hitbox: changes when crouching */
+    int16_t ahb_yo, ahb_h;
+    if(s_player.crouching){
+        ahb_yo=PLAYER_CROUCH_HB_Y_OFFSET; ahb_h=PLAYER_CROUCH_HB_H;
+    }else{
+        ahb_yo=PLAYER_HB_Y_OFFSET; ahb_h=PLAYER_HB_H;
+    }
 
-    /* Horizontal momentum: accelerate toward input, decelerate when idle.
-     * Symmetric in both directions — no directional penalty. */
-    /* Check if player is on an icy tile (tile 7 repurposed: path on overworld, ice on action) */
+    /* Crouching disables horizontal movement */
+    if(s_player.crouching){
+        s_player.vel_fx=0;s_player.vel_x=0;
+    } else {
+    /* Horizontal momentum: accelerate toward input, decelerate when idle. */
+    /* Check if player is on an icy tile */
     if(s_player.on_ground){
         uint16_t ftx=(uint16_t)((s_player.x+PLAYER_HB_X_OFFSET+PLAYER_HB_W/2)/TILE_SIZE);
         uint16_t fty=(uint16_t)((s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H)/TILE_SIZE);
@@ -1140,6 +1153,7 @@ static void action_update(uint16_t input,uint16_t pressed){
             else if(s_player.vel_fx<0){s_player.vel_fx+=dec;if(s_player.vel_fx>0)s_player.vel_fx=0;}
         }
     }
+    } /* end of crouch-else movement block */
     s_player.vel_x=FX_TO_PX(s_player.vel_fx);
     /* Fix: sub-pixel velocities must still produce 1px/frame movement.
      * Without this, small vel_fx (e.g. 128 in 8.8) rounds to 0 pixels,
@@ -1148,9 +1162,9 @@ static void action_update(uint16_t input,uint16_t pressed){
     if(s_player.vel_x==0&&s_player.vel_fx<0)s_player.vel_x=-1;
     abs_vfx=s_player.vel_x; if(abs_vfx<0)abs_vfx=-abs_vfx; if(abs_vfx<1)abs_vfx=1;
 
-    hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
+    hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+ahb_yo;
     {uint8_t was_on_ladder=s_player.on_ladder;
-    uint8_t touching_ladder=box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_LADDER);
+    uint8_t touching_ladder=box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_LADDER);
 
     /* Ladder top detection: check if feet are at the top of a ladder column.
      * "Top" means the tile below feet is ladder but the tile AT feet level is not. */
@@ -1260,11 +1274,11 @@ static void action_update(uint16_t input,uint16_t pressed){
     if(s_player.attacking>0)s_player.attacking--;
 
     /* Horizontal collision */
-    nx=s_player.x+s_player.vel_x;hb_x=nx+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
-    if(!box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_SOLID)){s_player.x=nx;}
+    nx=s_player.x+s_player.vel_x;hb_x=nx+PLAYER_HB_X_OFFSET;hb_y=s_player.y+ahb_yo;
+    if(!box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_SOLID)){s_player.x=nx;}
     else{int16_t step=(s_player.vel_x>0)?1:-1;int16_t tx2=s_player.x;int16_t m=0;
         while(m<abs_vfx){tx2+=step;hb_x=tx2+PLAYER_HB_X_OFFSET;
-            if(box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_SOLID)){tx2-=step;break;}m++;}
+            if(box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_SOLID)){tx2-=step;break;}m++;}
         s_player.x=tx2;s_player.vel_x=0;s_player.vel_fx=0;}
 
     /* Vertical collision (pixel-step when vel_y exceeds a tile to prevent fall-through)
@@ -1275,23 +1289,23 @@ static void action_update(uint16_t input,uint16_t pressed){
      while(vy_remaining!=0){
         int16_t step=vy_remaining;
         if(step>TILE_SIZE)step=TILE_SIZE; if(step<-TILE_SIZE)step=-TILE_SIZE;
-        ny=s_player.y+step;hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=ny+PLAYER_HB_Y_OFFSET;
-        if(!box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_SOLID)){
-            if(step>0){int16_t fy=ny+PLAYER_HB_Y_OFFSET+PLAYER_HB_H-1,pf=s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H-1;
+        ny=s_player.y+step;hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=ny+ahb_yo;
+        if(!box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_SOLID)){
+            if(step>0){int16_t fy=ny+ahb_yo+ahb_h-1,pf=s_player.y+ahb_yo+ahb_h-1;
                 uint16_t fty=(uint16_t)(fy/TILE_SIZE),pty=(uint16_t)(pf/TILE_SIZE);
                 if(fty!=pty){uint16_t mtx=(uint16_t)((s_player.x+PLAYER_HB_X_OFFSET+PLAYER_HB_W/2)/TILE_SIZE);
                     uint8_t tb=hal_tilemap_get(mtx,fty);
                     if((tile_flags(tb)&TILE_PLATFORM)&&pf<(int16_t)(fty*TILE_SIZE)){
-                        s_player.y=(int16_t)(fty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_y=0;s_player.vel_fy=0;s_player.on_ground=1;goto av;}}}
+                        s_player.y=(int16_t)(fty*TILE_SIZE)-ahb_yo-ahb_h;s_player.vel_y=0;s_player.vel_fy=0;s_player.on_ground=1;goto av;}}}
             s_player.y=ny;
-        }else{if(step>0){int16_t fy=ny+PLAYER_HB_Y_OFFSET+PLAYER_HB_H-1;uint16_t fty=(uint16_t)(fy/TILE_SIZE);
-            s_player.y=(int16_t)(fty*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.on_ground=1;
-        }else{uint16_t hty=(uint16_t)(hb_y/TILE_SIZE);s_player.y=(int16_t)((hty+1)*TILE_SIZE)-PLAYER_HB_Y_OFFSET;}s_player.vel_y=0;s_player.vel_fy=0;break;}
+        }else{if(step>0){int16_t fy=ny+ahb_yo+ahb_h-1;uint16_t fty=(uint16_t)(fy/TILE_SIZE);
+            s_player.y=(int16_t)(fty*TILE_SIZE)-ahb_yo-ahb_h;s_player.on_ground=1;
+        }else{uint16_t hty=(uint16_t)(hb_y/TILE_SIZE);s_player.y=(int16_t)((hty+1)*TILE_SIZE)-ahb_yo;}s_player.vel_y=0;s_player.vel_fy=0;break;}
         vy_remaining-=step;
     }}
 av:
-    hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+PLAYER_HB_Y_OFFSET;
-    if(s_player.invuln==0&&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_DAMAGE)){
+    hb_x=s_player.x+PLAYER_HB_X_OFFSET;hb_y=s_player.y+ahb_yo;
+    if(s_player.invuln==0&&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_DAMAGE)){
         s_player.hp-=1;s_player.invuln=INVULN_TIME;s_player.vel_fy=FY_JUMP/2;s_player.vel_y=FX_TO_PX(s_player.vel_fy);}
     if(s_player.invuln>0)s_player.invuln--;
 
@@ -1302,14 +1316,14 @@ av:
         else{s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;}return;}
 
     /* EXIT tiles -- field maps or dungeon entry room → back to overworld (1px wider probe) */
-    if(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,PLAYER_HB_H,TILE_EXIT)){
+    if(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_EXIT)){
         if(s_map_event_type==MAP_EVENT_FIELD
          ||(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry)){
             s_scene=SCENE_OVERWORLD;return;}}
 
     /* TRANSITION tiles -- dungeon rooms (probe 1px wider to detect wall-embedded tiles) */
     if((s_map_event_type==MAP_EVENT_DUNGEON_FIXED||s_map_event_type==MAP_EVENT_DUNGEON_RANDOM)
-       &&(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,PLAYER_HB_H,TILE_TRANSITION))){
+       &&(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_TRANSITION))){
         if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry){
             /* Entry room ladder → descend into first random room */
             s_dungeon.in_entry=0;s_dungeon.current_idx=0;
@@ -1321,7 +1335,7 @@ av:
     /* DOOR ENTER — safe/town maps: press UP on a transition tile (9) to enter building */
     if(s_action_reason==ACTION_REASON_SAFE&&!s_in_building
        &&(pressed&INPUT_UP)
-       &&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,PLAYER_HB_H,TILE_TRANSITION)){
+       &&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_TRANSITION)){
         /* Save outer map state */
         s_building_px=s_player.x;s_building_py=s_player.y;
         s_building_map_w=s_act_map_w;s_building_map_h=s_act_map_h;
@@ -1339,7 +1353,7 @@ av:
     }
 
     /* DOOR EXIT — inside building: walk left into exit tile (8) → return to outer map */
-    if(s_in_building&&box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,PLAYER_HB_H,TILE_EXIT)){
+    if(s_in_building&&box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_EXIT)){
         s_in_building=0;
         /* Restore outer map */
         switch(s_safe_type){
