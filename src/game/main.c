@@ -567,7 +567,7 @@ typedef struct {
     int16_t fy_max_fall;      /* terminal fall velocity                    */
     int16_t fy_climb;         /* ladder climb speed                        */
     int16_t land_crouch_thresh; /* vspeed threshold for crouch on landing  */
-    uint8_t land_crouch_frames; /* frames of crouch after hard landing     */
+    int16_t land_crouch_frames; /* frames of crouch after hard landing     */
 
     /* Horizontal physics (8.8 fixed-point) */
     int16_t fx_max_speed;     /* max horizontal speed                      */
@@ -576,14 +576,14 @@ typedef struct {
     int16_t fx_air_max;       /* air speed cap                              */
 
     /* Combat / items */
-    uint8_t attack_duration;  /* frames of sword slash                      */
-    uint8_t invuln_time;      /* iframes after taking damage                */
+    int16_t attack_duration;  /* frames of sword slash                      */
+    int16_t invuln_time;      /* iframes after taking damage                */
     int16_t player_hp;        /* starting / max HP                          */
     int16_t arrow_speed;      /* bow projectile speed                       */
-    uint8_t arrow_lifetime;   /* bow projectile frames alive                */
+    int16_t arrow_lifetime;   /* bow projectile frames alive                */
 
     /* Overworld */
-    uint8_t ow_move_speed;    /* overworld pixels per frame                 */
+    int16_t ow_move_speed;    /* overworld pixels per frame                 */
 } tunable_t;
 
 static tunable_t T = {
@@ -645,19 +645,19 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"fy_grav_held",    &T.fy_grav_held,      5,    57,    1,  500},
     {"fy_jump",         &T.fy_jump,           50,  -1230, -3000, 0},
     {"fy_max_fall",     &T.fy_max_fall,       50,   1535,  256, 5000},
-    {"fy_climb",        (int16_t*)&T.fy_climb, 32,  512,   64, 2048},
+    {"fy_climb",        &T.fy_climb, 32,  512,   64, 2048},
     {"land_crouch_thr", &T.land_crouch_thresh, 64,  1280,  0,  5000},
-    {"land_crouch_frm", (int16_t*)&T.land_crouch_frames, 1, 8, 0, 60},
+    {"land_crouch_frm", &T.land_crouch_frames, 1, 8, 0, 60},
     {"fx_max_speed",    &T.fx_max_speed,      50,   1383,  64, 4096},
     {"fx_accel",        &T.fx_accel,          5,    57,    1,  500},
     {"fx_air_accel",    &T.fx_air_accel,      5,    38,    1,  500},
     {"fx_air_max",      &T.fx_air_max,        50,   1383,  64, 4096},
-    {"attack_dur",      (int16_t*)&T.attack_duration, 1, ATTACK_DURATION_DEF, 1, 120},
-    {"invuln_time",     (int16_t*)&T.invuln_time, 5, INVULN_TIME_DEF, 0, 255},
+    {"attack_dur",      &T.attack_duration, 1, ATTACK_DURATION_DEF, 1, 120},
+    {"invuln_time",     &T.invuln_time, 5, INVULN_TIME_DEF, 0, 255},
     {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
     {"arrow_speed",     &T.arrow_speed,       1,    5,     1,  20},
-    {"arrow_lifetime",  (int16_t*)&T.arrow_lifetime, 5, 60, 10, 255},
-    {"ow_move_speed",   (int16_t*)&T.ow_move_speed, 1, 1,  1,  8},
+    {"arrow_lifetime",  &T.arrow_lifetime, 5, 60, 10, 255},
+    {"ow_move_speed",   &T.ow_move_speed, 1, 1,  1,  8},
 };
 
 /* Overworld player: 8x8 visual centred in 16x16 sprite slot.
