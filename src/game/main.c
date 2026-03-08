@@ -2103,7 +2103,9 @@ static void render(void){
         uint8_t blink = ((hal_frame_count() / 25) & 1); /* toggle every 0.5s */
         hal_draw_number(SCREEN_W-48,2,(int32_t)gh,0xFC);
         hal_draw_text(SCREEN_W-36,2,blink?":":" ",0xFC);
-        hal_draw_number(SCREEN_W-30,2,(int32_t)gm,0xFC);
+        /* Always two-digit minutes: "00", "10", "20", etc. */
+        if(gm<10){hal_draw_text(SCREEN_W-30,2,"0",0xFC);hal_draw_number(SCREEN_W-22,2,(int32_t)gm,0xFC);}
+        else{hal_draw_number(SCREEN_W-30,2,(int32_t)gm,0xFC);}
         }
         switch(events_phase()){
         case PHASE_WAITING:{uint16_t s2=events_timer()/50;hal_draw_text(2,12,"Next:",0xFF);hal_draw_number(44,12,(int32_t)(s2+1),0xFF);hal_draw_text(52,12,"s",0xFF);break;}
