@@ -1,15 +1,38 @@
 /*============================================================================
  * main.c - Game Entry Point (Platform-Independent)
  *
+ * TABLE OF CONTENTS (search for "=== SECTION" to jump between sections):
+ *
+ *   === TYPES & ENUMS ===        Scene, action, player, item, map types
+ *   === CONFIGURATION ===        Tile collision, hitbox, physics, tunables
+ *   === MAP DATA ===             #include "maps.h"
+ *   === GAME STATE ===           All static variables, grouped by system
+ *   === FORWARD DECLARATIONS === All forward-declared functions
+ *   === COLLISION HELPERS ===    Tile lookup, box-vs-flag tests
+ *   === TILE MANAGEMENT ===      Overworld tile build/swap for action scenes
+ *   === FRIENDLY NPC DIALOG ===  NPC names, lines, dialog box, effects
+ *   === OVERWORLD SCENE ===      Init, camera, movement, encounters
+ *   === DUNGEON SYSTEM ===       Room loading, fixed/random init, transitions
+ *   === ACTION SCENE ===         Init, physics, movement, collision, combat
+ *   === ARROWS & PLACED LADDER = Projectile and placeable item systems
+ *   === EQUIPMENT USE ===        BTN4/5/6 dispatch
+ *   === INVENTORY ===            Init, bag slots, equip slots
+ *   === BAG / PAUSE MENU ===     Bag UI, equip HUD, pause overlay
+ *   === DEBUG MENU ===           Hierarchical menu, load-map submenus
+ *   === DEBUG CONSOLE ===        Runtime parameter editor (tunable_t)
+ *   === KEYBIND EDITOR ===       Control rebinding UI
+ *   === RENDER ===               Full frame draw
+ *   === MAIN LOOP ===            Entry point and game loop
+ *
  * Scenes:
- *   OVERWORLD  — top-down scrolling map with spawning events
- *   ACTION     — sidescrolling platformer (field / dungeon)
+ *   OVERWORLD  -- top-down scrolling map with spawning events
+ *   ACTION     -- sidescrolling platformer (field / dungeon)
  *
  * Action scene types (map_event_type_t):
- *   FIELD   (1)  — open area with exit tiles on L/R borders.
+ *   FIELD   (1)  -- open area with exit tiles on L/R borders.
  *                   Enemies, safe zones, discoveries load here.
- *   DUNGEON_FIXED (2) — pre-defined room order (type 1).
- *   DUNGEON_RANDOM(3) — rooms picked from pool, randomly connected (type 2).
+ *   DUNGEON_FIXED (2) -- pre-defined room order (type 1).
+ *   DUNGEON_RANDOM(3) -- rooms picked from pool, randomly connected (type 2).
  *                   Transition tiles move between rooms.
  *
  * Spawn cycle: timer -> spawn group -> linger 5s -> despawn -> timer resets
@@ -20,6 +43,116 @@
 #include "game/overworld_events.h"
 #include <stdlib.h>
 
+/*==========================================================================
+ * === TYPES & ENUMS ===
+ *==========================================================================*/
+
+typedef enum { SCENE_OVERWORLD, SCENE_ACTION } scene_t;
+
+typedef enum {
+    ACTION_REASON_NONE=0, ACTION_REASON_COMBAT, ACTION_REASON_SAFE,
+    ACTION_REASON_DISCOVERY, ACTION_REASON_DUNGEON_FIXED,
+    ACTION_REASON_DUNGEON_RANDOM
+} action_reason_t;
+
+typedef enum {
+    MAP_EVENT_FIELD=1, MAP_EVENT_DUNGEON_FIXED, MAP_EVENT_DUNGEON_RANDOM
+} map_event_type_t;
+
+typedef enum {
+    ITEM_NONE=0,
+    ITEM_BOW,       /* fires arrow in facing direction from upper body */
+    ITEM_LADDER,    /* places/retracts a climbable ladder in front */
+    ITEM_COUNT
+} item_id_t;
+/*==========================================================================
+ * PLAYER STATE
+ *==========================================================================*/
+
+/*==========================================================================
+ * PLAYER HITBOX
+ *
+ * Action scenes: 16x32 sprite (two 16x16 slots stacked).
+ * Hitbox is inset from the sprite edges.
+ * Overworld: uses OW_PLAYER_SIZE/OFFSET (8x8 centred in 16x16).
+ *==========================================================================*/
+
+#define PLAYER_HB_X_OFFSET  3
+#define PLAYER_HB_Y_OFFSET  2
+#define PLAYER_HB_W         10
+#define PLAYER_HB_H         28   /* tall hitbox for 16x32 sprite */
+#define PLAYER_SPRITE_H     32   /* total sprite height in action scenes */
+/* Crouch hitbox: one tile tall, aligned with bottom sprite (y+16) */
+#define PLAYER_CROUCH_HB_Y_OFFSET  16  /* starts at bottom sprite */
+#define PLAYER_CROUCH_HB_H         14  /* one tile minus margin */
+#define PATTERN_ACT_TOP      2   /* sprite pattern: action player top half  */
+#define PATTERN_ACT_BOT      3   /* sprite pattern: action player bottom    */
+#define PATTERN_ACT_CROUCH   14  /* sprite pattern: action player crouching */
+
+typedef struct {
+    int16_t x, y, vel_x, vel_y;
+    int16_t vel_fx;  /* horizontal velocity in 8.8 fixed-point (action scenes) */
+    int16_t vel_fy;  /* vertical velocity in 8.8 fixed-point (action scenes)   */
+    uint8_t dir, on_ground, on_ladder, attacking, frame;
+    uint8_t crouching;
+    int16_t hp;
+    uint8_t invuln;
+    int16_t jump_vel_fx; /* vel_fx captured at jump, used to limit air speed */
+} player_t;
+
+static player_t s_player;
+static int16_t s_ow_player_x, s_ow_player_y;
+
+
+/* World map descriptor */
+typedef struct {
+    const uint8_t *data;
+    uint16_t w, h;
+    const char *name;
+} world_map_t;
+typedef struct {
+    const uint8_t *map;
+    uint16_t w, h;
+    int16_t entry_back_x, entry_back_y;
+    int16_t entry_fwd_x, entry_fwd_y;
+    const char *name;          /* room display name */
+    const char *label_back;    /* entry point label: back/left */
+    const char *label_fwd;     /* entry point label: forward/right */
+} dungeon_room_def_t;
+#define MAX_DUNGEON_ROOMS 8
+typedef struct {
+    uint8_t num_rooms;
+    uint8_t room_order[MAX_DUNGEON_ROOMS];
+    uint8_t current_idx;
+    uint8_t in_entry;   /* 1 = in type-2 entry room (has exit+transition) */
+} dungeon_state_t;
+static dungeon_state_t s_dungeon;
+
+/* Arrow projectile */
+typedef struct {
+    int16_t x, y, vel_x;
+    uint8_t active, timer;
+} arrow_t;
+/*==========================================================================
+ * PLACEABLE LADDER
+ *==========================================================================*/
+
+#define PLACED_LADDER_MAX_H  6  /* max tiles in any direction */
+
+typedef struct {
+    uint8_t active;
+    uint16_t tiles_x[PLACED_LADDER_MAX_H]; /* tile x per segment */
+    uint16_t tiles_y[PLACED_LADDER_MAX_H]; /* tile y per segment */
+    uint8_t  orig[PLACED_LADDER_MAX_H];    /* original tile at each position */
+    uint8_t count;                          /* number of ladder tiles placed */
+} placed_ladder_t;
+static placed_ladder_t s_placed_ladder;
+
+/*==========================================================================
+ * === CONFIGURATION ===
+ *
+ * All tunable values in one place. To adjust gameplay feel, edit here.
+ *==========================================================================*/
 /*==========================================================================
  * TILE COLLISION TABLE
  *==========================================================================*/
@@ -59,404 +192,6 @@ static uint8_t tile_flags(uint8_t tile_idx) {
     if (tile_idx >= NUM_TILE_TYPES) return TILE_EMPTY;
     return tile_collision[tile_idx];
 }
-
-/*==========================================================================
- * COLLISION HELPERS
- *==========================================================================*/
-
-static uint8_t point_tile_flags(int16_t px, int16_t py) {
-    uint16_t tx = (uint16_t)(px / TILE_SIZE);
-    uint16_t ty = (uint16_t)(py / TILE_SIZE);
-    return tile_flags(hal_tilemap_get(tx, ty));
-}
-
-static uint8_t box_hits_flag(int16_t bx, int16_t by, uint8_t bw, uint8_t bh, uint8_t mask) {
-    if (point_tile_flags(bx,          by)          & mask) return 1;
-    if (point_tile_flags(bx + bw - 1, by)          & mask) return 1;
-    if (point_tile_flags(bx,          by + bh - 1) & mask) return 1;
-    if (point_tile_flags(bx + bw - 1, by + bh - 1) & mask) return 1;
-    if (point_tile_flags(bx + bw / 2, by)          & mask) return 1;
-    if (point_tile_flags(bx + bw / 2, by + bh - 1) & mask) return 1;
-    if (point_tile_flags(bx,          by + bh / 2) & mask) return 1;
-    if (point_tile_flags(bx + bw - 1, by + bh / 2) & mask) return 1;
-    return 0;
-}
-
-/*==========================================================================
- * MAPS -- OVERWORLD
- * Multiple world maps supported. worldmap01 is the main map.
- * Additional maps can be added for testing features.
- *==========================================================================*/
-
-#define OW_PATH_TILE  7
-
-/* World map descriptor */
-typedef struct {
-    const uint8_t *data;
-    uint16_t w, h;
-    const char *name;
-} world_map_t;
-
-#define WORLDMAP01_W   40
-#define WORLDMAP01_H   30
-static const uint8_t worldmap01_data[WORLDMAP01_H * WORLDMAP01_W] = {
-/* r 0*/ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-/* r 1*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 2*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 3*/ 1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 4*/ 1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,
-/* r 5*/ 1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,
-/* r 6*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 7*/ 1,0,0,0,0,11,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 8*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/* r 9*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,
-/*r10*/ 1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,
-/*r11*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,13,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r12*/ 1,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r13*/ 1,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r14*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r15*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r16*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r17*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,1,
-/*r18*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r19*/ 1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r20*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r21*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,
-/*r22*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,0,0,0,1,
-/*r23*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r24*/ 1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r25*/ 1,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,
-/*r26*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r27*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r28*/ 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-/*r29*/ 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-};
-
-/* Test world map — small 20x15, for testing features */
-#define WORLDMAP_TEST_W  20
-#define WORLDMAP_TEST_H  15
-static const uint8_t worldmap_test_data[WORLDMAP_TEST_H * WORLDMAP_TEST_W] = {
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,7,7,7,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,7,0,7,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,7,7,7,0,0,0,11,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,9,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,13,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,12,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-};
-
-/* World map registry — all available overworld maps */
-#define NUM_WORLD_MAPS 2
-static const world_map_t world_maps[NUM_WORLD_MAPS] = {
-    { worldmap01_data, WORLDMAP01_W, WORLDMAP01_H, "worldmap01" },
-    { worldmap_test_data, WORLDMAP_TEST_W, WORLDMAP_TEST_H, "test_map" },
-};
-static uint8_t s_cur_world_map = 0; /* index into world_maps[] */
-
-/* Forward declarations for overworld tile pattern swap (defined after action maps) */
-static void action_clear_ow_tiles(void);
-static void ow_restore_tiles(void);
-
-/*==========================================================================
- * FIELD ACTION MAPS -- exit tiles (8) on L/R borders
- *==========================================================================*/
-
-#define FIELD_COMBAT_W  40
-#define FIELD_COMBAT_H  12
-static const uint8_t field_map_combat[FIELD_COMBAT_H * FIELD_COMBAT_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,2,0,0,4,4,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,2,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,2,0,0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,2,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,1,1,1,1,0,0,6,6,0,0,1,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-
-/* Tough foe map — wider with water hazards, damage tiles, tight platforming */
-#define FIELD_TOUGH_W  50
-#define FIELD_TOUGH_H  12
-static const uint8_t field_map_tough[FIELD_TOUGH_H * FIELD_TOUGH_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,1,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,4,4,4,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,1,0,0,6,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,6,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,6,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,0,0,10,10,10,0,0,1,1,1,0,0,0,1,1,1,0,0,10,10,10,0,0,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,10,10,10,1,1,1,1,1,1,1,1,1,1,1,1,1,10,10,10,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-
-#define FIELD_DISC_W  30
-#define FIELD_DISC_H  12
-static const uint8_t field_map_discovery[FIELD_DISC_H * FIELD_DISC_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,4,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-
-/*==========================================================================
- * PEACEFUL ACTION MAPS -- with exit borders
- *==========================================================================*/
-
-#define SAFE_LONE_W  16
-#define SAFE_LONE_H  12
-static const uint8_t safe_map_lone[SAFE_LONE_H * SAFE_LONE_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,7,0,0,0,0,7,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-#define SAFE_LONE_NPC_X  (8 * TILE_SIZE)
-#define SAFE_LONE_NPC_Y  (8 * TILE_SIZE)
-
-#define SAFE_CARAVAN_W  30
-#define SAFE_CARAVAN_H  12
-static const uint8_t safe_map_caravan[SAFE_CARAVAN_H * SAFE_CARAVAN_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,3,3,0,0,0,0,0,0,0,0,7,7,7,0,0,0,0,0,0,0,3,3,3,0,0,0,8,
-8,0,0,3,3,0,0,0,0,0,0,0,0,0,7,0,0,0,0,0,0,0,0,3,3,3,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-#define SAFE_CARAVAN_NPC_COUNT 4
-static const int16_t safe_caravan_npc_x[SAFE_CARAVAN_NPC_COUNT] = {6*16,11*16,16*16,21*16};
-static const int16_t safe_caravan_npc_y[SAFE_CARAVAN_NPC_COUNT] = {8*16,8*16,8*16,8*16};
-
-/* Oasis Town — Zelda 2 style: flat ground, buildings, enterable doors (tile 9).
- * Buildings are 3×3 solid blocks with a 2-tile-high door gap.
- * NPCs stand on ground level between buildings. */
-#define SAFE_OASIS_W  60
-#define SAFE_OASIS_H  12
-static const uint8_t safe_map_oasis[SAFE_OASIS_H * SAFE_OASIS_W] = {
-/*r0 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r1 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r2 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r3 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r4 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r5 */ 8,0,0,0,3,3,3,0,0,0,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,3,3,3,3,0,0,8,
-/*r6 */ 8,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,3,0,0,0,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,3,0,0,8,
-/*r7 */ 8,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,0,3,0,0,0,0,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,3,0,0,0,0,0,0,3,0,3,0,0,0,0,0,0,3,0,0,3,0,0,8,
-/*r8 */ 8,0,0,0,3,9,3,0,0,0,0,0,0,3,9,0,9,3,0,0,0,0,0,0,0,3,9,3,0,0,0,0,0,0,3,9,9,3,0,0,0,0,0,0,3,9,3,0,0,0,0,0,0,3,9,9,3,0,0,8,
-/*r9 */ 8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-/*r10*/ 8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-/*r11*/ 8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,
-};
-/* NPCs on ground level between buildings */
-#define SAFE_OASIS_NPC_COUNT 6
-static const int16_t safe_oasis_npc_x[SAFE_OASIS_NPC_COUNT]={8*16,20*16,30*16,40*16,50*16,11*16};
-static const int16_t safe_oasis_npc_y[SAFE_OASIS_NPC_COUNT]={8*16,8*16,8*16,8*16,8*16,8*16};
-static const uint8_t safe_oasis_npc_type[SAFE_OASIS_NPC_COUNT]={
-    FRIENDLY_MERCHANT,FRIENDLY_HEALER,FRIENDLY_SAGE,
-    FRIENDLY_WANDERER,FRIENDLY_MERCHANT,FRIENDLY_WANDERER};
-
-/*==========================================================================
- * BUILDING INTERIOR ROOM — entered via doors in towns
- * Small 16x12 room. Door/exit on left wall (2 tiles high).
- * Exit by walking left through the door.
- *==========================================================================*/
-#define INTERIOR_W  16
-#define INTERIOR_H  12
-static const uint8_t interior_room[INTERIOR_H * INTERIOR_W] = {
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-};
-
-/*==========================================================================
- * DUNGEON ROOM DEFINITIONS
- * Transition tiles (9) at edges: left = go back, right = go forward.
- *==========================================================================*/
-
-typedef struct {
-    const uint8_t *map;
-    uint16_t w, h;
-    int16_t entry_back_x, entry_back_y;
-    int16_t entry_fwd_x, entry_fwd_y;
-    const char *name;          /* room display name */
-    const char *label_back;    /* entry point label: back/left */
-    const char *label_fwd;     /* entry point label: forward/right */
-} dungeon_room_def_t;
-
-#define DR_W 20
-#define DR_H 12
-static const uint8_t droom_a[DR_H*DR_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,4,4,4,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,4,4,0,0,5,0,9,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0,1,
-1,0,0,0,0,0,0,3,3,0,0,0,0,0,0,0,0,5,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-#define DR2_W 24
-static const uint8_t droom_b[DR_H*DR2_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,1,
-1,0,0,4,4,0,0,5,0,0,0,0,0,0,0,0,5,0,0,4,4,0,0,1,
-1,0,0,0,0,0,0,5,4,4,0,0,0,0,4,4,5,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,9,
-1,0,0,0,0,0,0,5,0,0,0,4,4,0,0,0,5,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,6,6,0,0,0,0,0,0,0,0,0,0,6,6,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-#define DR3_W 16
-static const uint8_t droom_c[DR_H*DR3_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,5,0,0,0,0,0,0,0,0,5,0,0,1,
-1,0,0,5,0,0,0,0,0,0,0,0,5,0,0,1,
-1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,5,0,0,5,0,0,0,0,0,9,
-1,0,0,0,0,0,5,0,0,5,0,0,0,0,0,1,
-1,0,0,0,0,0,5,0,0,5,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-static const uint8_t droom_d[DR_H*DR_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,9,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-static const uint8_t droom_e[DR_H*DR_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,0,0,0,0,5,0,0,0,0,5,0,0,0,0,0,0,1,
-1,0,0,0,2,2,0,5,0,0,0,0,5,0,2,2,0,0,0,1,
-1,0,0,0,2,2,0,5,0,0,0,0,5,0,2,2,0,0,0,1,
-1,0,0,0,0,0,0,5,4,4,4,4,5,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,5,0,0,0,0,5,0,0,0,0,0,0,9,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,6,6,0,0,0,0,0,0,0,0,0,0,6,6,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-static const uint8_t droom_f[DR_H*DR2_W]={
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,1,
-9,0,0,0,0,1,1,1,1,0,0,5,0,0,1,1,1,1,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,4,4,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,9,
-1,0,0,0,0,1,1,1,1,0,0,5,0,0,1,1,1,1,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,5,0,0,0,0,0,0,0,0,0,0,0,1,
-1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-
-#define DUNGEON_ROOM_POOL_SIZE 6
-static const dungeon_room_def_t room_pool[DUNGEON_ROOM_POOL_SIZE] = {
-    { droom_a, DR_W,  DR_H,  2*16,3*16,  18*16,6*16, "room_a","left_door","right_ladder" },
-    { droom_b, DR2_W, DR_H,  2*16,2*16,  22*16,6*16, "room_b","west_entry","east_exit" },
-    { droom_c, DR3_W, DR_H,  2*16,2*16,  14*16,6*16, "room_c","left_gate","right_gate" },
-    { droom_d, DR_W,  DR_H,  2*16,2*16,  18*16,2*16, "room_d","left_high","right_high" },
-    { droom_e, DR_W,  DR_H,  2*16,2*16,  18*16,6*16, "room_e","west_cage","east_exit" },
-    { droom_f, DR2_W, DR_H,  2*16,3*16,  22*16,6*16, "room_f","left_hall","right_hall" },
-};
-
-#define FIXED_DUNGEON_SIZE 4
-static const uint8_t fixed_dungeon_order[FIXED_DUNGEON_SIZE] = { 0, 1, 2, 3 };
-
-/*==========================================================================
- * TYPE-2 DUNGEON ENTRY ROOM
- * Exit tiles (8) on L/R edges let the player leave back to overworld.
- * A ladder pit in the centre leads down to a transition tile (9) that
- * drops into the first randomly-connected room.
- *==========================================================================*/
-
-#define ENTRY_W 24
-#define ENTRY_H 12
-static const uint8_t dungeon_entry_room[ENTRY_H * ENTRY_W] = {
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,
-8,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,5,5,5,5,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,5,5,5,5,1,1,1,1,1,1,1,1,1,8,
-8,1,1,1,1,1,1,1,1,1,9,9,9,9,1,1,1,1,1,1,1,1,1,8,
-};
-
-/*==========================================================================
- * PLAYER STATE
- *==========================================================================*/
-
 /*==========================================================================
  * PLAYER HITBOX
  *
@@ -477,82 +212,36 @@ static const uint8_t dungeon_entry_room[ENTRY_H * ENTRY_W] = {
 #define PATTERN_ACT_BOT      3   /* sprite pattern: action player bottom    */
 #define PATTERN_ACT_CROUCH   14  /* sprite pattern: action player crouching */
 
-typedef struct {
-    int16_t x, y, vel_x, vel_y;
-    int16_t vel_fx;  /* horizontal velocity in 8.8 fixed-point (action scenes) */
-    int16_t vel_fy;  /* vertical velocity in 8.8 fixed-point (action scenes)   */
-    uint8_t dir, on_ground, on_ladder, attacking, frame;
-    uint8_t crouching;
-    int16_t hp;
-    uint8_t invuln;
-    int16_t jump_vel_fx; /* vel_fx captured at jump, used to limit air speed */
-} player_t;
-
-static player_t s_player;
-static int16_t s_ow_player_x, s_ow_player_y;
-
-/*==========================================================================
- * GAME STATE
- *==========================================================================*/
-
-typedef enum { SCENE_OVERWORLD, SCENE_ACTION } scene_t;
-
-typedef enum {
-    ACTION_REASON_NONE=0, ACTION_REASON_COMBAT, ACTION_REASON_SAFE,
-    ACTION_REASON_DISCOVERY, ACTION_REASON_DUNGEON_FIXED,
-    ACTION_REASON_DUNGEON_RANDOM
-} action_reason_t;
-
-typedef enum {
-    MAP_EVENT_FIELD=1, MAP_EVENT_DUNGEON_FIXED, MAP_EVENT_DUNGEON_RANDOM
-} map_event_type_t;
-
-static scene_t s_scene;
-static action_reason_t s_action_reason;
-static map_event_type_t s_map_event_type;
-static safe_zone_type_t s_safe_type;
-static encounter_t s_last_encounter;
-static uint8_t s_paused, s_bag_open, s_friendly_dialog;
-static uint8_t s_transition_timer; /* frames of black screen on scene change */
-#define TRANSITION_FRAMES 12  /* ~0.25s at 50Hz */
-/* Location re-entry prevention: remember which tile player exited onto */
-static uint16_t s_immune_tx, s_immune_ty;
-static uint8_t s_immune_active;
-static uint8_t s_force_reinit; /* used by debug menu to force scene reload */
-static int16_t s_camera_x, s_ow_cam_x, s_ow_cam_y;
-static uint16_t s_act_map_w, s_act_map_h;
-static const char *s_act_map_name; /* current map name for HUD */
-
-/* Building interior system: enter doors in towns by pressing UP */
-static uint8_t s_in_building;     /* 1 = inside a building interior */
-static int16_t s_building_px;     /* saved player x before entering */
-static int16_t s_building_py;     /* saved player y before entering */
-static uint16_t s_building_map_w; /* saved outer map width */
-static uint16_t s_building_map_h;
-static const uint8_t *s_building_outer_map; /* pointer to outer map */
-static int16_t s_building_cam_x;  /* saved camera x */
-
-#define ACTION_NPC_SPRITE_BASE 2  /* slots 0,1 = action player (top,bottom) */
-#define ACTION_NPC_MAX 8
-static uint8_t s_action_npc_count;
-static int16_t s_action_npc_wx[ACTION_NPC_MAX]; /* world x positions */
-static int16_t s_action_npc_wy[ACTION_NPC_MAX]; /* world y positions */
-static uint8_t s_action_npc_pat[ACTION_NPC_MAX]; /* pattern per NPC */
-
-#define MAX_DUNGEON_ROOMS 8
-typedef struct {
-    uint8_t num_rooms;
-    uint8_t room_order[MAX_DUNGEON_ROOMS];
-    uint8_t current_idx;
-    uint8_t in_entry;   /* 1 = in type-2 entry room (has exit+transition) */
-} dungeon_state_t;
-static dungeon_state_t s_dungeon;
-
+/*----------------------------------------------------------------------
+ * Sprite Patterns
+ *----------------------------------------------------------------------*/
+#define PATTERN_OW_PLAYER    1   /* overworld player        */
+#define PATTERN_FRIENDLY     8
+#define PATTERN_NPC_MERCHANT  10
+#define PATTERN_NPC_HEALER    11
+#define PATTERN_NPC_SAGE      12
+#define PATTERN_NPC_WANDERER  13
 #define MOVE_SPEED 2
 #define CLIMB_SPEED 2
 #define ATTACK_DURATION_DEF 12
 #define INVULN_TIME_DEF 30
 #define PLAYER_START_HP 10
+
+/* Overworld player: 8x8 visual centred in 16x16 sprite slot.
+ * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
+ * centre 8x8 filled.  Movement at 75% of action speed. */
+#define OW_PLAYER_SIZE    8
+#define OW_PLAYER_OFFSET  4   /* (16-8)/2 — centering in 16x16 sprite */
+#define OW_MOVE_SPEED     1   /* 75% of 2: alternate 1 and 2 px/frame */
+#define PATTERN_OW_PLAYER 1   /* sprite pattern 1 = overworld player   */
+
+/*----------------------------------------------------------------------
+ * Horizontal momentum — values now in tunable_t T (see above)
+ *----------------------------------------------------------------------*/
+#define FX_SHIFT       8
+#define FX_ONE         (1 << FX_SHIFT)           /* 256  */
+#define FX_DECEL       9999                       /* instant stop on ground */
+#define FX_TO_PX(v)    ((int16_t)((v) / FX_ONE))  /* symmetric toward-zero truncation */
 
 /*----------------------------------------------------------------------
  * TUNABLE PARAMETERS — runtime-editable via debug console (BTN3 x2)
@@ -663,26 +352,229 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"ow_move_speed",   &T.ow_move_speed, 1, 1,  1,  8},
 };
 
-/* Overworld player: 8x8 visual centred in 16x16 sprite slot.
- * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
- * centre 8x8 filled.  Movement at 75% of action speed. */
-#define OW_PLAYER_SIZE    8
-#define OW_PLAYER_OFFSET  4   /* (16-8)/2 — centering in 16x16 sprite */
-#define OW_MOVE_SPEED     1   /* 75% of 2: alternate 1 and 2 px/frame */
-#define PATTERN_OW_PLAYER 1   /* sprite pattern 1 = overworld player   */
+/*----------------------------------------------------------------------
+ * Arrow / Projectile Config
+ *----------------------------------------------------------------------*/
+#define MAX_ARROWS     1
+#define ARROW_SPEED    4
+#define ARROW_LIFETIME 60   /* frames before despawn */
+#define ARROW_SPAWN_Y_STANDING 8   /* px from player top -- upper body */
+#define ARROW_SPAWN_Y_CROUCH  20  /* px from player top -- lower body when crouched */
 
 /*----------------------------------------------------------------------
- * Horizontal momentum — values now in tunable_t T (see above)
+ * Inventory Config
  *----------------------------------------------------------------------*/
-#define FX_SHIFT       8
-#define FX_ONE         (1 << FX_SHIFT)           /* 256  */
-#define FX_DECEL       9999                       /* instant stop on ground */
-#define FX_TO_PX(v)    ((int16_t)((v) / FX_ONE))  /* symmetric toward-zero truncation */
+#define BAG_SLOTS     8
+#define EQUIP_SLOTS   3
+
+/*----------------------------------------------------------------------
+ * NPC / Action Scene Config
+ *----------------------------------------------------------------------*/
+#define ACTION_NPC_SPRITE_BASE 2  /* slots 0,1 = action player (top,bottom) */
+#define ACTION_NPC_MAX 8
+#define TRANSITION_FRAMES 12  /* ~0.25s at 50Hz */
 
 /*==========================================================================
- * FRIENDLY NPC DIALOG
+ * === MAP DATA ===
+ * All world maps, field maps, safe zones, dungeons, interiors.
+ * Types (world_map_t, dungeon_room_def_t) must be defined above.
  *==========================================================================*/
 
+#include "game/maps.h"
+
+/*==========================================================================
+ * === GAME STATE ===
+ * All static variables, grouped by subsystem.
+ *==========================================================================*/
+
+/*--- Player ---*/
+static player_t s_player;
+static int16_t s_ow_player_x, s_ow_player_y;
+
+/*--- Scene / Game ---*/
+static scene_t s_scene;
+static action_reason_t s_action_reason;
+static map_event_type_t s_map_event_type;
+static safe_zone_type_t s_safe_type;
+static encounter_t s_last_encounter;
+static uint8_t s_paused, s_bag_open, s_friendly_dialog;
+static uint8_t s_transition_timer;
+static uint8_t s_force_reinit;
+static uint8_t s_cur_world_map = 0;
+
+/*--- Camera ---*/
+static int16_t s_camera_x, s_ow_cam_x, s_ow_cam_y;
+
+/*--- Action Map ---*/
+static uint16_t s_act_map_w, s_act_map_h;
+static const char *s_act_map_name;
+
+/*--- Building Interior ---*/
+static uint8_t s_in_building;
+static int16_t s_building_px, s_building_py;
+static uint16_t s_building_map_w, s_building_map_h;
+static const uint8_t *s_building_outer_map;
+static int16_t s_building_cam_x;
+
+/*--- Location Re-entry Prevention ---*/
+static uint16_t s_immune_tx, s_immune_ty;
+static uint8_t s_immune_active;
+
+/*--- Action NPCs ---*/
+static uint8_t s_action_npc_count;
+static int16_t s_action_npc_wx[ACTION_NPC_MAX];
+static int16_t s_action_npc_wy[ACTION_NPC_MAX];
+static uint8_t s_action_npc_pat[ACTION_NPC_MAX];
+
+/*--- Dungeon ---*/
+static dungeon_state_t s_dungeon;
+
+/*--- Overworld ---*/
+static uint8_t s_ow_frame_toggle;
+
+/*--- Equipment / Inventory ---*/
+static item_id_t s_bag[BAG_SLOTS];
+static item_id_t s_equip[EQUIP_SLOTS];
+static uint8_t s_bag_cursor;
+
+/*--- Arrows ---*/
+static arrow_t s_arrows[MAX_ARROWS];
+
+/*--- Placed Ladder ---*/
+static placed_ladder_t s_placed_ladder;
+
+/*--- Overworld Tile Patterns ---*/
+static const uint8_t s_blank_tile[TILE_SIZE * TILE_SIZE] = {0};
+static uint8_t s_ow_tile_town[TILE_SIZE * TILE_SIZE];
+static uint8_t s_ow_tile_forest[TILE_SIZE * TILE_SIZE];
+static uint8_t s_ow_tiles_built = 0;
+
+/*--- Debug Menu ---*/
+static uint8_t s_debug_menu;
+static uint8_t s_debug_cursor;
+static uint8_t s_debug_scroll;
+static uint8_t s_debug_level;
+static uint8_t s_debug_cat;
+static uint8_t s_debug_sub;
+static uint8_t s_debug_room;
+
+/*--- Debug Console ---*/
+static uint8_t s_console_open;
+static uint8_t s_console_cursor;
+static uint8_t s_console_scroll;
+
+/*--- Keybind Editor ---*/
+static uint8_t s_keybind_editor;
+static uint8_t s_keybind_cursor;
+static uint8_t s_keybind_waiting;
+
+/*==========================================================================
+ * === FORWARD DECLARATIONS ===
+ *==========================================================================*/
+static void action_clear_ow_tiles(void);
+static void ow_restore_tiles(void);
+static void arrows_clear(void);
+static void arrows_update(void);
+static void arrows_draw(int16_t cam_x);
+static void arrow_fire(void);
+static void placed_ladder_clear(void);
+static void placed_ladder_apply(void);
+static void placed_ladder_place(uint16_t input);
+static void placed_ladder_remove(void);
+static uint8_t player_on_placed_ladder(void);
+static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input);
+static void inventory_init(void);
+static void bag_input(uint16_t pressed);
+static void bag_draw(void);
+static void equip_hud_draw(void);
+static void menu_draw(void);
+static void debug_draw(void);
+static void debug_input(uint16_t pressed);
+static void console_draw(void);
+static void console_input(uint16_t pressed, uint16_t input);
+static void keybind_draw(void);
+static void keybind_input(uint16_t pressed);
+static void friendly_dialog_draw(void);
+static void render(void);
+
+/*==========================================================================
+ * === COLLISION HELPERS ===
+ *==========================================================================*/
+static uint8_t tile_flags(uint8_t tile_idx) {
+    if (tile_idx >= NUM_TILE_TYPES) return TILE_EMPTY;
+    return tile_collision[tile_idx];
+}
+
+/*==========================================================================
+ * COLLISION HELPERS
+ *==========================================================================*/
+
+static uint8_t point_tile_flags(int16_t px, int16_t py) {
+    uint16_t tx = (uint16_t)(px / TILE_SIZE);
+    uint16_t ty = (uint16_t)(py / TILE_SIZE);
+    return tile_flags(hal_tilemap_get(tx, ty));
+}
+
+static uint8_t box_hits_flag(int16_t bx, int16_t by, uint8_t bw, uint8_t bh, uint8_t mask) {
+    if (point_tile_flags(bx,          by)          & mask) return 1;
+    if (point_tile_flags(bx + bw - 1, by)          & mask) return 1;
+    if (point_tile_flags(bx,          by + bh - 1) & mask) return 1;
+    if (point_tile_flags(bx + bw - 1, by + bh - 1) & mask) return 1;
+    if (point_tile_flags(bx + bw / 2, by)          & mask) return 1;
+    if (point_tile_flags(bx + bw / 2, by + bh - 1) & mask) return 1;
+    if (point_tile_flags(bx,          by + bh / 2) & mask) return 1;
+    if (point_tile_flags(bx + bw - 1, by + bh / 2) & mask) return 1;
+    return 0;
+}
+
+/*==========================================================================
+ * === TILE MANAGEMENT ===
+ *==========================================================================*/
+static void ow_tiles_build(void) {
+    /* Build once: generate the same patterns the HAL creates at init */
+    int px, py;
+    if (s_ow_tiles_built) return;
+    /* Town tile 11 */
+    for (py = 0; py < TILE_SIZE; py++) {
+        for (px = 0; px < TILE_SIZE; px++) {
+            uint8_t c = ((px+py)&1) ? 0xFD : 0xFD; /* base town checkerboard */
+            if (py <= 3 && px >= 3 && px <= 12) c = 0xFC;       /* roof */
+            else if (py > 3 && py <= 12 && (px == 3 || px == 12)) c = 0xE8; /* walls */
+            else if (py >= 10 && px >= 6 && px <= 9) c = 0x64;  /* door */
+            else if (py > 3 && py < 10 && px > 3 && px < 12) c = 0xED; /* wall fill */
+            s_ow_tile_town[py * TILE_SIZE + px] = c;
+        }
+    }
+    /* Forest tile 13 */
+    for (py = 0; py < TILE_SIZE; py++) {
+        for (px = 0; px < TILE_SIZE; px++) {
+            uint8_t c = ((px+py)&1) ? 0x04 : 0x28; /* base forest checkerboard */
+            {int cx2 = px - 7, cy2 = py - 4;
+            if (cx2*cx2 + cy2*cy2 <= 20) c = 0x24;              /* canopy */
+            else if (px >= 6 && px <= 9 && py >= 10) c = 0x64;} /* trunk */
+            s_ow_tile_forest[py * TILE_SIZE + px] = c;
+        }
+    }
+    s_ow_tiles_built = 1;
+}
+
+static void action_clear_ow_tiles(void) {
+    hal_tiles_load(s_blank_tile, 11, 1);  /* blank town */
+    hal_tiles_load(s_blank_tile, 13, 1);  /* blank forest */
+}
+
+static void ow_restore_tiles(void) {
+    ow_tiles_build();
+    hal_tiles_load(s_ow_tile_town,   11, 1);
+    hal_tiles_load(s_ow_tile_forest, 13, 1);
+}
+
+/*==========================================================================
+ * === FRIENDLY NPC DIALOG ===
+ *==========================================================================*/
+static const char *item_name(item_id_t id){
+    switch(id){case ITEM_BOW:return"Bow";case ITEM_LADDER:return"Ladder";default:return"---";}
+}
 static const char *friendly_name(friendly_type_t ft) {
     switch(ft){case FRIENDLY_MERCHANT:return"MERCHANT";case FRIENDLY_HEALER:return"HEALER";
     case FRIENDLY_SAGE:return"SAGE";case FRIENDLY_WANDERER:return"WANDERER";default:return"STRANGER";}
@@ -715,10 +607,8 @@ static const char *safe_zone_name(safe_zone_type_t st) {
 }
 
 /*==========================================================================
- * OVERWORLD SCENE -- scrolling camera
+ * === OVERWORLD SCENE ===
  *==========================================================================*/
-
-static uint8_t s_ow_frame_toggle;  /* alternates 0/1 each frame for 75% speed */
 
 static void overworld_init(void) {
     const world_map_t *wm=&world_maps[s_cur_world_map];
@@ -835,15 +725,8 @@ static void overworld_update(uint16_t input, uint16_t pressed) {
 }
 
 /*==========================================================================
- * ACTION SCENE
+ * === DUNGEON SYSTEM ===
  *==========================================================================*/
-
-#define PATTERN_FRIENDLY 8
-#define PATTERN_NPC_MERCHANT  10
-#define PATTERN_NPC_HEALER    11
-#define PATTERN_NPC_SAGE      12
-#define PATTERN_NPC_WANDERER  13
-
 static uint8_t npc_pattern_for_friendly(friendly_type_t ft){
     switch(ft){case FRIENDLY_MERCHANT:return PATTERN_NPC_MERCHANT;case FRIENDLY_HEALER:return PATTERN_NPC_HEALER;
     case FRIENDLY_SAGE:return PATTERN_NPC_SAGE;case FRIENDLY_WANDERER:return PATTERN_NPC_WANDERER;default:return PATTERN_FRIENDLY;}
@@ -898,87 +781,29 @@ static void dungeon_init_random(void){
     /* Start in the entry room — player can exit L/R or descend into depths */
     load_entry_room();
 }
+static void dungeon_handle_transition(int16_t pcx){
+    int16_t mid=(int16_t)(s_act_map_w*TILE_SIZE/2);
+    if(pcx<mid){
+        /* Going backward */
+        if(s_dungeon.current_idx==0){
+            if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM){
+                /* Back to entry room */
+                load_entry_room();return;
+            }
+            /* Fixed dungeon: exit to overworld from first room */
+            s_scene=SCENE_OVERWORLD;return;
+        }
+        s_dungeon.current_idx--;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],0);
+    }else{
+        /* Going forward */
+        if(s_dungeon.current_idx>=s_dungeon.num_rooms-1){s_scene=SCENE_OVERWORLD;return;}
+        s_dungeon.current_idx++;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
+    }
+}
 
 /*==========================================================================
- * EQUIPMENT / INVENTORY TYPES AND GLOBALS
+ * === ACTION SCENE ===
  *==========================================================================*/
-
-typedef enum {
-    ITEM_NONE=0,
-    ITEM_BOW,       /* fires arrow in facing direction from upper body */
-    ITEM_LADDER,    /* places/retracts a climbable ladder in front */
-    ITEM_COUNT
-} item_id_t;
-
-static const char *item_name(item_id_t id){
-    switch(id){case ITEM_BOW:return"Bow";case ITEM_LADDER:return"Ladder";default:return"---";}
-}
-
-/* Inventory: bag slots + 3 equip slots (mapped to BTN4/5/6) */
-#define BAG_SLOTS     8
-#define EQUIP_SLOTS   3
-static item_id_t s_bag[BAG_SLOTS];
-static item_id_t s_equip[EQUIP_SLOTS]; /* equip[0]=BTN4, equip[1]=BTN5, equip[2]=BTN6 */
-
-/* Forward declarations for equipment system (defined below render) */
-static void arrows_clear(void);
-static void arrows_update(void);
-static void placed_ladder_clear(void);
-static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input);
-static void inventory_init(void);
-static void bag_input(uint16_t pressed);
-
-/* Overworld-only tile IDs: road(7), town(11), forest(13).
-   In action mode, tile 7 is repurposed as ice (keeps its pattern).
-   Town(11) and forest(13) have overworld shapes that must be blanked
-   in action so they render as empty if accidentally placed. */
-static const uint8_t s_blank_tile[TILE_SIZE * TILE_SIZE] = {0};
-
-/* Pre-built town tile pattern (building shape with door) — matches HAL init */
-static uint8_t s_ow_tile_town[TILE_SIZE * TILE_SIZE];
-/* Pre-built forest tile pattern (tree shape) — matches HAL init */
-static uint8_t s_ow_tile_forest[TILE_SIZE * TILE_SIZE];
-static uint8_t s_ow_tiles_built = 0;
-
-static void ow_tiles_build(void) {
-    /* Build once: generate the same patterns the HAL creates at init */
-    int px, py;
-    if (s_ow_tiles_built) return;
-    /* Town tile 11 */
-    for (py = 0; py < TILE_SIZE; py++) {
-        for (px = 0; px < TILE_SIZE; px++) {
-            uint8_t c = ((px+py)&1) ? 0xFD : 0xFD; /* base town checkerboard */
-            if (py <= 3 && px >= 3 && px <= 12) c = 0xFC;       /* roof */
-            else if (py > 3 && py <= 12 && (px == 3 || px == 12)) c = 0xE8; /* walls */
-            else if (py >= 10 && px >= 6 && px <= 9) c = 0x64;  /* door */
-            else if (py > 3 && py < 10 && px > 3 && px < 12) c = 0xED; /* wall fill */
-            s_ow_tile_town[py * TILE_SIZE + px] = c;
-        }
-    }
-    /* Forest tile 13 */
-    for (py = 0; py < TILE_SIZE; py++) {
-        for (px = 0; px < TILE_SIZE; px++) {
-            uint8_t c = ((px+py)&1) ? 0x04 : 0x28; /* base forest checkerboard */
-            {int cx2 = px - 7, cy2 = py - 4;
-            if (cx2*cx2 + cy2*cy2 <= 20) c = 0x24;              /* canopy */
-            else if (px >= 6 && px <= 9 && py >= 10) c = 0x64;} /* trunk */
-            s_ow_tile_forest[py * TILE_SIZE + px] = c;
-        }
-    }
-    s_ow_tiles_built = 1;
-}
-
-static void action_clear_ow_tiles(void) {
-    hal_tiles_load(s_blank_tile, 11, 1);  /* blank town */
-    hal_tiles_load(s_blank_tile, 13, 1);  /* blank forest */
-}
-
-static void ow_restore_tiles(void) {
-    ow_tiles_build();
-    hal_tiles_load(s_ow_tile_town,   11, 1);
-    hal_tiles_load(s_ow_tile_forest, 13, 1);
-}
-
 static void action_init(void){
     hal_sprite_hide_all();s_action_npc_count=0;
     arrows_clear();placed_ladder_clear();s_in_building=0;
@@ -1016,27 +841,6 @@ static void action_init(void){
         s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;s_player.crouching=0;}
     s_player.dir=0;s_player.frame=0;s_player.invuln=0;s_player.vel_fx=0;s_player.vel_fy=0;s_camera_x=0;
 }
-
-static void dungeon_handle_transition(int16_t pcx){
-    int16_t mid=(int16_t)(s_act_map_w*TILE_SIZE/2);
-    if(pcx<mid){
-        /* Going backward */
-        if(s_dungeon.current_idx==0){
-            if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM){
-                /* Back to entry room */
-                load_entry_room();return;
-            }
-            /* Fixed dungeon: exit to overworld from first room */
-            s_scene=SCENE_OVERWORLD;return;
-        }
-        s_dungeon.current_idx--;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],0);
-    }else{
-        /* Going forward */
-        if(s_dungeon.current_idx>=s_dungeon.num_rooms-1){s_scene=SCENE_OVERWORLD;return;}
-        s_dungeon.current_idx++;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
-    }
-}
-
 static void action_update(uint16_t input,uint16_t pressed){
     int16_t nx,ny,hb_x,hb_y,abs_vfx;
     uint8_t on_ice=0;
@@ -1346,20 +1150,8 @@ av:
 }
 
 /*==========================================================================
- * EQUIPMENT / INVENTORY FUNCTIONS
+ * === ARROWS & PLACED LADDER ===
  *==========================================================================*/
-
-static void inventory_init(void){
-    uint8_t i;
-    for(i=0;i<BAG_SLOTS;i++) s_bag[i]=ITEM_NONE;
-    for(i=0;i<EQUIP_SLOTS;i++) s_equip[i]=ITEM_NONE;
-    /* Starter items */
-    s_bag[0]=ITEM_BOW;
-    s_bag[1]=ITEM_LADDER;
-    s_equip[0]=ITEM_BOW;    /* BTN4 = bow */
-    s_equip[1]=ITEM_LADDER; /* BTN5 = ladder */
-}
-
 /*==========================================================================
  * ARROW PROJECTILE
  *==========================================================================*/
@@ -1502,6 +1294,9 @@ static uint8_t player_on_placed_ladder(void){
 }
 
 /*==========================================================================
+ * === EQUIPMENT USE ===
+ *==========================================================================*/
+/*==========================================================================
  * EQUIPMENT USE (called from action_update)
  *==========================================================================*/
 
@@ -1530,6 +1325,27 @@ static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input){
     }
 }
 
+/*==========================================================================
+ * === INVENTORY ===
+ *==========================================================================*/
+/*==========================================================================
+ * EQUIPMENT / INVENTORY FUNCTIONS
+ *==========================================================================*/
+
+static void inventory_init(void){
+    uint8_t i;
+    for(i=0;i<BAG_SLOTS;i++) s_bag[i]=ITEM_NONE;
+    for(i=0;i<EQUIP_SLOTS;i++) s_equip[i]=ITEM_NONE;
+    /* Starter items */
+    s_bag[0]=ITEM_BOW;
+    s_bag[1]=ITEM_LADDER;
+    s_equip[0]=ITEM_BOW;    /* BTN4 = bow */
+    s_equip[1]=ITEM_LADDER; /* BTN5 = ladder */
+}
+
+/*==========================================================================
+ * === BAG / PAUSE MENU ===
+ *==========================================================================*/
 /*==========================================================================
  * BAG / PAUSE / EQUIP HUD
  *==========================================================================*/
@@ -1607,12 +1423,8 @@ static void menu_draw(void){
 }
 
 /*==========================================================================
- * KEYBIND EDITOR state (declared early for debug_input access)
+ * === DEBUG MENU ===
  *==========================================================================*/
-static uint8_t s_keybind_editor;
-static uint8_t s_keybind_cursor;
-static uint8_t s_keybind_waiting;
-
 /*==========================================================================
  * DEBUG MENU — hierarchical with load sub-menus and scrolling
  *==========================================================================*/
@@ -1821,6 +1633,9 @@ static void debug_input(uint16_t pressed){
 }
 
 /*==========================================================================
+ * === DEBUG CONSOLE ===
+ *==========================================================================*/
+/*==========================================================================
  * DEBUG CONSOLE — in-game parameter editor
  *
  * Access: Pause → BTN3 (debug menu) → BTN3 again (console)
@@ -1868,6 +1683,9 @@ static void console_input(uint16_t pressed, uint16_t input){
     if(pressed&INPUT_MENU){s_console_open=0;s_debug_menu=0;} /* exit all */
 }
 
+/*==========================================================================
+ * === KEYBIND EDITOR ===
+ *==========================================================================*/
 /*==========================================================================
  * KEYBIND EDITOR
  * Accessible from debug menu. Shows all bindings, press Jump to rebind.
@@ -1926,6 +1744,9 @@ static void keybind_input(uint16_t pressed){
     if(k==KEY_ID_ESCAPE){s_keybind_editor=0;s_debug_menu=0;}}
 }
 
+/*==========================================================================
+ * === RENDER ===
+ *==========================================================================*/
 /*==========================================================================
  * RENDER
  *==========================================================================*/
@@ -2004,6 +1825,9 @@ static void render(void){
     if(s_transition_timer>0){hal_draw_rect(0,0,128,192,0x00);hal_draw_rect(128,0,128,192,0x00);}
 }
 
+/*==========================================================================
+ * === MAIN LOOP ===
+ *==========================================================================*/
 /*==========================================================================
  * MAIN
  *==========================================================================*/
