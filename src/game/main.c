@@ -4,7 +4,8 @@
  * TABLE OF CONTENTS (search for "=== SECTION" to jump between sections):
  *
  *   === TYPES & ENUMS ===        Scene, action, player, item, map types
- *   === CONFIGURATION ===        Tile collision, hitbox, physics, tunables
+ *   === CONFIGURATION ===        Tile collision, hitbox, physics
+ *                                 #include "tunables.h" (tunable_t, T, tvars)
  *   === MAP DATA ===             #include "maps.h"
  *   === GAME STATE ===           All static variables, grouped by system
  *   === FORWARD DECLARATIONS === All forward-declared functions
@@ -18,7 +19,7 @@
  *   === EQUIPMENT USE ===        BTN4/5/6 dispatch
  *   === INVENTORY ===            Init, bag slots, equip slots
  *   === BAG / PAUSE MENU ===     Bag UI, equip HUD, pause overlay
- *   === DEBUG MENU ===           Hierarchical menu, load-map submenus
+ *   === DEBUG MENU ===           #include "debug_menu.h" + menu functions
  *   === DEBUG CONSOLE ===        Runtime parameter editor (tunable_t)
  *   === KEYBIND EDITOR ===       Control rebinding UI
  *   === RENDER ===               Full frame draw
@@ -65,17 +66,11 @@ typedef enum {
     ITEM_LADDER,    /* places/retracts a climbable ladder in front */
     ITEM_COUNT
 } item_id_t;
-/*==========================================================================
- * PLAYER STATE
- *==========================================================================*/
 
-/*==========================================================================
- * PLAYER HITBOX
- *
+/*--- Player hitbox ---
  * Action scenes: 16x32 sprite (two 16x16 slots stacked).
  * Hitbox is inset from the sprite edges.
- * Overworld: uses OW_PLAYER_SIZE/OFFSET (8x8 centred in 16x16).
- *==========================================================================*/
+ * Overworld: uses OW_PLAYER_SIZE/OFFSET (8x8 centred in 16x16). */
 
 #define PLAYER_HB_X_OFFSET  3
 #define PLAYER_HB_Y_OFFSET  2
@@ -100,10 +95,6 @@ typedef struct {
     int16_t jump_vel_fx; /* vel_fx captured at jump, used to limit air speed */
 } player_t;
 
-static player_t s_player;
-static int16_t s_ow_player_x, s_ow_player_y;
-
-
 /* World map descriptor */
 typedef struct {
     const uint8_t *data;
@@ -126,16 +117,12 @@ typedef struct {
     uint8_t current_idx;
     uint8_t in_entry;   /* 1 = in type-2 entry room (has exit+transition) */
 } dungeon_state_t;
-static dungeon_state_t s_dungeon;
 
 /* Arrow projectile */
 typedef struct {
     int16_t x, y, vel_x;
     uint8_t active, timer;
 } arrow_t;
-/*==========================================================================
- * PLACEABLE LADDER
- *==========================================================================*/
 
 #define PLACED_LADDER_MAX_H  6  /* max tiles in any direction */
 
@@ -146,17 +133,14 @@ typedef struct {
     uint8_t  orig[PLACED_LADDER_MAX_H];    /* original tile at each position */
     uint8_t count;                          /* number of ladder tiles placed */
 } placed_ladder_t;
-static placed_ladder_t s_placed_ladder;
 
 /*==========================================================================
  * === CONFIGURATION ===
  *
  * All tunable values in one place. To adjust gameplay feel, edit here.
  *==========================================================================*/
-/*==========================================================================
- * TILE COLLISION TABLE
- *==========================================================================*/
 
+/*--- Tile collision table ---*/
 #define NUM_TILE_TYPES  26
 
 static const uint8_t tile_collision[NUM_TILE_TYPES] = {
@@ -188,30 +172,6 @@ static const uint8_t tile_collision[NUM_TILE_TYPES] = {
     /*25 */ TILE_EMPTY,        /* world_road (overworld, passable)  */
 };
 
-static uint8_t tile_flags(uint8_t tile_idx) {
-    if (tile_idx >= NUM_TILE_TYPES) return TILE_EMPTY;
-    return tile_collision[tile_idx];
-}
-/*==========================================================================
- * PLAYER HITBOX
- *
- * Action scenes: 16x32 sprite (two 16x16 slots stacked).
- * Hitbox is inset from the sprite edges.
- * Overworld: uses OW_PLAYER_SIZE/OFFSET (8x8 centred in 16x16).
- *==========================================================================*/
-
-#define PLAYER_HB_X_OFFSET  3
-#define PLAYER_HB_Y_OFFSET  2
-#define PLAYER_HB_W         10
-#define PLAYER_HB_H         28   /* tall hitbox for 16x32 sprite */
-#define PLAYER_SPRITE_H     32   /* total sprite height in action scenes */
-/* Crouch hitbox: one tile tall, aligned with bottom sprite (y+16) */
-#define PLAYER_CROUCH_HB_Y_OFFSET  16  /* starts at bottom sprite */
-#define PLAYER_CROUCH_HB_H         14  /* one tile minus margin */
-#define PATTERN_ACT_TOP      2   /* sprite pattern: action player top half  */
-#define PATTERN_ACT_BOT      3   /* sprite pattern: action player bottom    */
-#define PATTERN_ACT_CROUCH   14  /* sprite pattern: action player crouching */
-
 /*----------------------------------------------------------------------
  * Sprite Patterns
  *----------------------------------------------------------------------*/
@@ -221,19 +181,23 @@ static uint8_t tile_flags(uint8_t tile_idx) {
 #define PATTERN_NPC_HEALER    11
 #define PATTERN_NPC_SAGE      12
 #define PATTERN_NPC_WANDERER  13
+
+/*----------------------------------------------------------------------
+ * Overworld Player — 8x8 visual centred in 16x16 sprite slot.
+ * Uses PATTERN_OW_PLAYER with only the centre 8x8 filled.
+ *----------------------------------------------------------------------*/
+#define OW_PLAYER_SIZE    8
+#define OW_PLAYER_OFFSET  4   /* (16-8)/2 -- centering in 16x16 sprite */
+#define OW_MOVE_SPEED     1   /* 75% of 2: alternate 1 and 2 px/frame  */
+
+/*----------------------------------------------------------------------
+ * Combat / Movement Defaults
+ *----------------------------------------------------------------------*/
 #define MOVE_SPEED 2
 #define CLIMB_SPEED 2
 #define ATTACK_DURATION_DEF 12
 #define INVULN_TIME_DEF 30
 #define PLAYER_START_HP 10
-
-/* Overworld player: 8x8 visual centred in 16x16 sprite slot.
- * Uses a dedicated pattern (PATTERN_OW_PLAYER) with only the
- * centre 8x8 filled.  Movement at 75% of action speed. */
-#define OW_PLAYER_SIZE    8
-#define OW_PLAYER_OFFSET  4   /* (16-8)/2 — centering in 16x16 sprite */
-#define OW_MOVE_SPEED     1   /* 75% of 2: alternate 1 and 2 px/frame */
-#define PATTERN_OW_PLAYER 1   /* sprite pattern 1 = overworld player   */
 
 /*----------------------------------------------------------------------
  * Horizontal momentum — values now in tunable_t T (see above)
@@ -243,114 +207,7 @@ static uint8_t tile_flags(uint8_t tile_idx) {
 #define FX_DECEL       9999                       /* instant stop on ground */
 #define FX_TO_PX(v)    ((int16_t)((v) / FX_ONE))  /* symmetric toward-zero truncation */
 
-/*----------------------------------------------------------------------
- * TUNABLE PARAMETERS — runtime-editable via debug console (BTN3 x2)
- *
- * All player movement, weapon, and physics values are stored here.
- * The debug console lets you adjust them in-game.
- * See tvar_names[] below for the full list of variable names.
- *----------------------------------------------------------------------*/
-
-typedef struct {
-    /* Vertical physics (8.8 fixed-point) */
-    int16_t fy_grav;          /* gravity when falling / not holding jump   */
-    int16_t fy_grav_held;     /* gravity while holding jump + rising       */
-    int16_t fy_jump;          /* jump impulse (negative = up)              */
-    int16_t fy_max_fall;      /* terminal fall velocity                    */
-    int16_t fy_climb;         /* ladder climb speed                        */
-    int16_t land_crouch_thresh; /* vspeed threshold for crouch on landing  */
-    int16_t land_crouch_frames; /* frames of crouch after hard landing     */
-
-    /* Horizontal physics (8.8 fixed-point) */
-    int16_t fx_max_speed;     /* max horizontal speed                      */
-    int16_t fx_accel;         /* ground acceleration per frame              */
-    int16_t fx_air_accel;     /* air acceleration per frame                 */
-    int16_t fx_air_max;       /* air speed cap                              */
-
-    /* Combat / items */
-    int16_t attack_duration;  /* frames of sword slash                      */
-    int16_t invuln_time;      /* iframes after taking damage                */
-    int16_t player_hp;        /* starting / max HP                          */
-    int16_t arrow_speed;      /* bow projectile speed                       */
-    int16_t arrow_lifetime;   /* bow projectile frames alive                */
-
-    /* Overworld */
-    int16_t ow_move_speed;    /* overworld pixels per frame                 */
-} tunable_t;
-
-static tunable_t T = {          /* modify the player settings */
-    /* fy_grav */       106,
-    /* fy_grav_held */  67,
-    /* fy_jump */       -1230,
-    /* fy_max_fall */   1535,
-    /* fy_climb */      512,
-    /* land_crouch */   1280,
-    /* land_crouch_f */ 8,
-    /* fx_max_speed */  683,
-    /* fx_accel */      52,       /* 19 * 3 = 57 (scale accel to match)   */
-    /* fx_air_accel */  18,       /* slightly more than old 19: 2x ground */
-    /* fx_air_max */    683,     /* match ground max                     */
-    /* attack_dur */    ATTACK_DURATION_DEF,
-    /* invuln_time */   INVULN_TIME_DEF,
-    /* player_hp */     PLAYER_START_HP,
-    /* arrow_speed */   5,
-    /* arrow_life */    60,
-    /* ow_move_spd */   1,
-};
-
-/* Convenience macros referencing tunable struct */
-#define FY_GRAV         T.fy_grav
-#define FY_GRAV_HELD    T.fy_grav_held
-#define FY_JUMP         T.fy_jump
-#define FY_MAX_FALL     T.fy_max_fall
-#define FY_CLIMB        T.fy_climb
-#define LAND_CROUCH_THRESHOLD  T.land_crouch_thresh
-#define LAND_CROUCH_FRAMES     T.land_crouch_frames
-#define FX_MAX_SPEED    T.fx_max_speed
-#define FX_ACCEL        T.fx_accel
-#define FX_AIR_ACCEL    T.fx_air_accel
-#define FX_AIR_MAX_BASE T.fx_air_max
-#define ATTACK_DURATION T.attack_duration
-#define INVULN_TIME     T.invuln_time
-
-/*----------------------------------------------------------------------
- * TUNABLE VARIABLE TABLE — for debug console display/editing
- *
- * Commands reference:
- *   Open console: pause (Esc) → BTN3 → BTN3 again
- *   Navigate:     Up/Down = select variable
- *   Adjust:       Left/Right = decrease/increase by step
- *   Fine adjust:  Hold BTN1 + Left/Right = adjust by 1
- *   Reset:        BTN2 = reset selected variable to default
- *   Exit:         Esc or BTN3
- *
- * Spawn commands (from debug menu, not console):
- *   Debug > Load Map > Action Maps > [type] = spawn action scene
- *   Debug > Load Map > Dungeons > [room] > [entry] = spawn in room
- *----------------------------------------------------------------------*/
-
-typedef struct { const char *name; int16_t *ptr; int16_t step; int16_t def; int16_t min; int16_t max; } tvar_t;
-
-#define TVAR_COUNT 17
-static const tvar_t tvars[TVAR_COUNT] = {
-    {"fy_grav",         &T.fy_grav,           10,   106,   1,  500},
-    {"fy_grav_held",    &T.fy_grav_held,      5,    67,    1,  500},
-    {"fy_jump",         &T.fy_jump,           50,  -1230, -3000, 0},
-    {"fy_max_fall",     &T.fy_max_fall,       50,   1535,  256, 5000},
-    {"fy_climb",        &T.fy_climb, 32,  512,   64, 2048},
-    {"land_crouch_thr", &T.land_crouch_thresh, 64,  1280,  0,  5000},
-    {"land_crouch_frm", &T.land_crouch_frames, 1, 8, 0, 60},
-    {"fx_max_speed",    &T.fx_max_speed,      50,   683,   64, 4096},
-    {"fx_accel",        &T.fx_accel,          5,    52,    1,  500},
-    {"fx_air_accel",    &T.fx_air_accel,      5,    18,    1,  500},
-    {"fx_air_max",      &T.fx_air_max,        50,   683,   64, 4096},
-    {"attack_dur",      &T.attack_duration, 1, ATTACK_DURATION_DEF, 1, 120},
-    {"invuln_time",     &T.invuln_time, 5, INVULN_TIME_DEF, 0, 255},
-    {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
-    {"arrow_speed",     &T.arrow_speed,       1,    5,     1,  20},
-    {"arrow_lifetime",  &T.arrow_lifetime, 5, 60, 10, 255},
-    {"ow_move_speed",   &T.ow_move_speed, 1, 1,  1,  8},
-};
+#include "game/tunables.h"
 
 /*----------------------------------------------------------------------
  * Arrow / Projectile Config
@@ -504,10 +361,6 @@ static uint8_t tile_flags(uint8_t tile_idx) {
     if (tile_idx >= NUM_TILE_TYPES) return TILE_EMPTY;
     return tile_collision[tile_idx];
 }
-
-/*==========================================================================
- * COLLISION HELPERS
- *==========================================================================*/
 
 static uint8_t point_tile_flags(int16_t px, int16_t py) {
     uint16_t tx = (uint16_t)(px / TILE_SIZE);
@@ -1152,21 +1005,6 @@ av:
 /*==========================================================================
  * === ARROWS & PLACED LADDER ===
  *==========================================================================*/
-/*==========================================================================
- * ARROW PROJECTILE
- *==========================================================================*/
-
-#define MAX_ARROWS     1
-#define ARROW_SPEED    4
-#define ARROW_LIFETIME 60   /* frames before despawn */
-#define ARROW_SPAWN_Y_STANDING 8   /* px from player top — upper body */
-#define ARROW_SPAWN_Y_CROUCH  20  /* px from player top — lower body when crouched */
-
-typedef struct {
-    int16_t x, y, vel_x;
-    uint8_t active, timer;
-} arrow_t;
-static arrow_t s_arrows[MAX_ARROWS];
 
 static void arrows_clear(void){
     uint8_t i; for(i=0;i<MAX_ARROWS;i++) s_arrows[i].active=0;
@@ -1210,21 +1048,6 @@ static void arrows_draw(int16_t cam_x){
             hal_draw_rect(sx,sy,8,2,0xFC); /* yellow */}
     }
 }
-
-/*==========================================================================
- * PLACEABLE LADDER
- *==========================================================================*/
-
-#define PLACED_LADDER_MAX_H  6  /* max tiles in any direction */
-
-typedef struct {
-    uint8_t active;
-    uint16_t tiles_x[PLACED_LADDER_MAX_H]; /* tile x per segment */
-    uint16_t tiles_y[PLACED_LADDER_MAX_H]; /* tile y per segment */
-    uint8_t  orig[PLACED_LADDER_MAX_H];    /* original tile at each position */
-    uint8_t count;                          /* number of ladder tiles placed */
-} placed_ladder_t;
-static placed_ladder_t s_placed_ladder;
 
 static void placed_ladder_clear(void){s_placed_ladder.active=0;s_placed_ladder.count=0;}
 
@@ -1296,9 +1119,6 @@ static uint8_t player_on_placed_ladder(void){
 /*==========================================================================
  * === EQUIPMENT USE ===
  *==========================================================================*/
-/*==========================================================================
- * EQUIPMENT USE (called from action_update)
- *==========================================================================*/
 
 static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input){
     uint16_t btn;
@@ -1328,9 +1148,6 @@ static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input){
 /*==========================================================================
  * === INVENTORY ===
  *==========================================================================*/
-/*==========================================================================
- * EQUIPMENT / INVENTORY FUNCTIONS
- *==========================================================================*/
 
 static void inventory_init(void){
     uint8_t i;
@@ -1346,11 +1163,6 @@ static void inventory_init(void){
 /*==========================================================================
  * === BAG / PAUSE MENU ===
  *==========================================================================*/
-/*==========================================================================
- * BAG / PAUSE / EQUIP HUD
- *==========================================================================*/
-
-static uint8_t s_bag_cursor; /* which bag slot is highlighted */
 
 static void bag_draw(void){
     uint8_t i;
@@ -1425,66 +1237,8 @@ static void menu_draw(void){
 /*==========================================================================
  * === DEBUG MENU ===
  *==========================================================================*/
-/*==========================================================================
- * DEBUG MENU — hierarchical with load sub-menus and scrolling
- *==========================================================================*/
-static uint8_t s_debug_menu;
-/* Forward-declared here; defined later with console_draw/console_input */
-static uint8_t s_console_open;
-static uint8_t s_console_cursor;
-static uint8_t s_console_scroll;
-static uint8_t s_debug_cursor;
-static uint8_t s_debug_scroll;  /* scroll offset for long lists */
-static uint8_t s_debug_level;   /* 0=main, 1=sub-cat, 2=sub-sub, 3=room pick, 4=entry pick */
-static uint8_t s_debug_cat;     /* which category in level 1 */
-static uint8_t s_debug_sub;     /* which item in level 2 (dungeon room etc) */
-static uint8_t s_debug_room;    /* selected room index for dungeon spawn */
 
-/* Main menu items */
-#define DMENU_LOAD_MAP    0
-#define DMENU_CHAR_SET    1
-#define DMENU_BACK_OW     2
-#define DMENU_CONTROLS    3
-#define DMENU_HEAL        4
-#define DMENU_EXIT        5
-#define DMAIN_ITEMS       6
-static const char *dmain_labels[DMAIN_ITEMS]={
-    "Load Map...","Character Settings...","Back to Overworld",
-    "Controls","Heal Full","Exit Game"
-};
-
-/* Load sub-categories */
-#define DCAT_WORLD    0
-#define DCAT_ACTION   1
-#define DCAT_DUNGEON  2
-#define DCAT_EVENT    3
-#define DCAT_COUNT    4
-static const char *dcat_labels[DCAT_COUNT]={
-    "World Maps","Action Maps","Dungeons","Events"
-};
-
-/* Action map registry for debug loading */
-typedef struct { const char *name; uint8_t reason; uint8_t map_type; uint8_t safe_type; uint8_t enemy_type; } debug_action_entry_t;
-#define NUM_DEBUG_ACTIONS 10
-static const debug_action_entry_t debug_actions[NUM_DEBUG_ACTIONS]={
-    {"Combat: Weak",   ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_WEAK},
-    {"Combat: Medium", ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_MEDIUM},
-    {"Combat: Strong", ACTION_REASON_COMBAT,    MAP_EVENT_FIELD,0,EVENT_ENEMY_STRONG},
-    {"Safe: Lone NPC", ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_LONE_CHARACTER,0},
-    {"Safe: Caravan",  ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_CARAVAN,0},
-    {"Safe: Oasis",    ACTION_REASON_SAFE,      MAP_EVENT_FIELD,SAFE_OASIS_TOWN,0},
-    {"Discovery",      ACTION_REASON_DISCOVERY, MAP_EVENT_FIELD,0,0},
-    {"Dungeon Fixed",  ACTION_REASON_DUNGEON_FIXED,MAP_EVENT_DUNGEON_FIXED,0,0},
-    {"Dungeon Random", ACTION_REASON_DUNGEON_RANDOM,MAP_EVENT_DUNGEON_RANDOM,0,0},
-    {"Dungeon Entry",  ACTION_REASON_DUNGEON_RANDOM,MAP_EVENT_DUNGEON_RANDOM,0,0},
-};
-
-/* Entry point options per room */
-#define DENTRY_BACK  0
-#define DENTRY_FWD   1
-#define DENTRY_COUNT 2
-
-#define DEBUG_VISIBLE_ROWS 13  /* max rows visible at once */
+#include "game/debug_menu.h"
 
 static uint8_t debug_list_count(void){
     if(s_debug_level==0) return DMAIN_ITEMS;
@@ -1634,11 +1388,8 @@ static void debug_input(uint16_t pressed){
 
 /*==========================================================================
  * === DEBUG CONSOLE ===
- *==========================================================================*/
-/*==========================================================================
- * DEBUG CONSOLE — in-game parameter editor
  *
- * Access: Pause → BTN3 (debug menu) → BTN3 again (console)
+ * Access: Pause -> BTN3 (debug menu) -> BTN3 again (console)
  * Navigate: Up/Down = select variable
  * Adjust: Left/Right = change by step, BTN1+Left/Right = change by 1
  * Reset: BTN2 = reset to default
@@ -1685,9 +1436,7 @@ static void console_input(uint16_t pressed, uint16_t input){
 
 /*==========================================================================
  * === KEYBIND EDITOR ===
- *==========================================================================*/
-/*==========================================================================
- * KEYBIND EDITOR
+ *
  * Accessible from debug menu. Shows all bindings, press Jump to rebind.
  * Press any key to assign it to the selected binding slot.
  *==========================================================================*/
@@ -1746,9 +1495,6 @@ static void keybind_input(uint16_t pressed){
 
 /*==========================================================================
  * === RENDER ===
- *==========================================================================*/
-/*==========================================================================
- * RENDER
  *==========================================================================*/
 
 static void render(void){
@@ -1827,9 +1573,6 @@ static void render(void){
 
 /*==========================================================================
  * === MAIN LOOP ===
- *==========================================================================*/
-/*==========================================================================
- * MAIN
  *==========================================================================*/
 
 int main(void){
