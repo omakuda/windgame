@@ -63,7 +63,7 @@ exit /b 0
 if defined VCPKG_ROOT (
     if exist "%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" (
         echo [vcpkg] Using VCPKG_ROOT=%VCPKG_ROOT%
-        set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+        set "VCPKG_TOOLCHAIN=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
         exit /b 0
     )
 )
@@ -78,14 +78,14 @@ for %%D in (
     if exist "%%~D\scripts\buildsystems\vcpkg.cmake" (
         echo [vcpkg] Found at %%~D
         set "VCPKG_ROOT=%%~D"
-        set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%%~D\scripts\buildsystems\vcpkg.cmake"
+        set "VCPKG_TOOLCHAIN=%%~D\scripts\buildsystems\vcpkg.cmake"
         exit /b 0
     )
 )
 echo [vcpkg] Not found. Trying manual SDL2 discovery...
-set "TOOLCHAIN="
+set "VCPKG_TOOLCHAIN="
 if defined SDL2_DIR (
-    set "TOOLCHAIN=-DCMAKE_PREFIX_PATH=%SDL2_DIR%"
+    set "SDL2_PREFIX=%SDL2_DIR%"
     echo [SDL2]  Using SDL2_DIR=%SDL2_DIR%
 )
 exit /b 0
@@ -125,7 +125,10 @@ if /i "%VS_GEN%"=="Visual Studio 16 2019" set "GEN_ARGS=-G "%VS_GEN%" -A x64"
 
 echo.
 echo [cmake] Configuring...
-cmake -B "%BUILD_DIR%" %GEN_ARGS% %TOOLCHAIN% -S build
+set "TOOLCHAIN_ARG="
+if defined VCPKG_TOOLCHAIN set "TOOLCHAIN_ARG=-DCMAKE_TOOLCHAIN_FILE="%VCPKG_TOOLCHAIN%""
+if defined SDL2_PREFIX set "TOOLCHAIN_ARG=-DCMAKE_PREFIX_PATH="%SDL2_PREFIX%""
+cmake -B "%BUILD_DIR%" %GEN_ARGS% %TOOLCHAIN_ARG% -S build
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] CMake configure failed.

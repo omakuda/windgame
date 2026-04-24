@@ -2,6 +2,7 @@
     "name": "windgame",
     "version-string": "1.0.0",
     "description": "Portable 2D game engine targeting ZX Spectrum Next and Windows",
+    "builtin-baseline": "7147ac1294ef9647e8679e1183ac440a5d0a63b7",
     "dependencies": [
         "sdl2",
         "sdl2-mixer"
