@@ -732,12 +732,18 @@ static void action_update(uint16_t input,uint16_t pressed){
         {int16_t accel=s_player.on_ground?FX_ACCEL:FX_AIR_ACCEL;
          s_player.vel_fx-=accel;}
         if(s_player.vel_fx<-air_max)s_player.vel_fx=-air_max;
+        /* Air direction lock: can't reverse past jump direction */
+        if(!s_player.on_ground&&!s_player.on_ladder&&s_player.jump_vel_fx>0&&s_player.vel_fx<0)
+            s_player.vel_fx=0;
         s_player.dir=1;
     }else if(input&INPUT_RIGHT){
         if(s_player.vel_fx<0&&s_player.on_ground&&!on_ice)s_player.vel_fx=0;
         {int16_t accel=s_player.on_ground?FX_ACCEL:FX_AIR_ACCEL;
          s_player.vel_fx+=accel;}
         if(s_player.vel_fx>air_max)s_player.vel_fx=air_max;
+        /* Air direction lock: can't reverse past jump direction */
+        if(!s_player.on_ground&&!s_player.on_ladder&&s_player.jump_vel_fx<0&&s_player.vel_fx>0)
+            s_player.vel_fx=0;
         s_player.dir=0;
     }else{
         /* Z2-style: instant stop on ground (no slide), gradual in air */
