@@ -31,7 +31,7 @@ typedef struct {
     int16_t fx_max_speed;     /* max horizontal speed                      */
     int16_t fx_accel;         /* ground acceleration per frame              */
     int16_t fx_air_accel;     /* air acceleration per frame                 */
-    int16_t fx_air_max;       /* air speed cap                              */
+    int16_t fx_air_max;       /* air steering cap (added to jump speed)    */
 
     /* Combat / items */
     int16_t attack_duration;  /* frames of sword slash                      */
@@ -62,7 +62,7 @@ static tunable_t T = {
     /* fx_max_speed */  683,
     /* fx_accel */      52,
     /* fx_air_accel */  18,
-    /* fx_air_max */    683,
+    /* fx_air_max */    170,
     /* attack_dur */    ATTACK_DURATION_DEF,
     /* invuln_time */   INVULN_TIME_DEF,
     /* player_hp */     PLAYER_START_HP,
@@ -123,7 +123,7 @@ static const tvar_t tvars[TVAR_COUNT] = {
     {"fx_max_speed",    &T.fx_max_speed,      50,   683,   64, 4096},
     {"fx_accel",        &T.fx_accel,          5,    52,    1,  500},
     {"fx_air_accel",    &T.fx_air_accel,      5,    18,    1,  500},
-    {"fx_air_max",      &T.fx_air_max,        50,   683,   64, 4096},
+    {"fx_air_max",      &T.fx_air_max,        10,   170,   0,  683},
     {"attack_dur",      &T.attack_duration,   1,    ATTACK_DURATION_DEF, 1, 120},
     {"invuln_time",     &T.invuln_time,       5,    INVULN_TIME_DEF, 0, 255},
     {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
