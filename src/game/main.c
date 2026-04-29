@@ -719,11 +719,12 @@ static void action_update(uint16_t input,uint16_t pressed){
         uint16_t fty=(uint16_t)((s_player.y+PLAYER_HB_Y_OFFSET+PLAYER_HB_H)/TILE_SIZE);
         if(fty<s_act_map_h&&ftx<s_act_map_w) on_ice=(hal_tilemap_get(ftx,fty)==7)?1:0;
     }
-    /* Air speed cap: generous cap so jumps feel responsive */
+    /* Air speed cap: can't exceed jump speed or standing-jump steering,
+     * whichever is greater. Prevents mid-air acceleration beyond launch. */
     air_max=FX_MAX_SPEED;
     if(!s_player.on_ground&&!s_player.on_ladder){
         int16_t jabs=s_player.jump_vel_fx;if(jabs<0)jabs=-jabs;
-        air_max=jabs+FX_AIR_MAX_BASE;
+        air_max=(jabs>FX_AIR_MAX_BASE)?jabs:FX_AIR_MAX_BASE;
         if(air_max>FX_MAX_SPEED)air_max=FX_MAX_SPEED;
     }
     if(input&INPUT_LEFT){
