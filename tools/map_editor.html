@@ -189,7 +189,10 @@ input[type="file"] { display:none; }
     <button onclick="fillBorder()">Border</button>
     <button onclick="clearMap()">Clear</button>
     <div class="layer-toggle">
-      <span class="layer-btn active" id="layTiles" onclick="setLayer('tiles')">Tiles</span>
+      <span class="layer-btn active" id="layTiles" onclick="setLayer('tiles')">L1 (Tiles)</span>
+      <span class="layer-btn pl-only" id="layL2" onclick="setLayer('l2')" style="display:none">L2</span>
+      <span class="layer-btn pl-only" id="layL3" onclick="setLayer('l3')" style="display:none">L3</span>
+      <span class="layer-btn pl-only" id="layL4" onclick="setLayer('l4')" style="display:none">L4 (BG)</span>
       <span class="layer-btn" id="layCollision" onclick="setLayer('collision')">Collision</span>
       <span class="layer-btn" id="laySpawn" onclick="setLayer('spawn')">Spawn</span>
       <span class="layer-btn" id="layEnv" onclick="setLayer('env')">Environ</span>
@@ -203,6 +206,15 @@ input[type="file"] { display:none; }
     <select id="npcSelect" style="display:none;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onNpcDropdown()"></select>
     </span>
     <button id="btn-dg-return" onclick="enterDungeonView()">⬅ Dungeon View</button>
+    <span style="margin-left:8px;display:inline-flex;align-items:center;gap:4px">
+      <label style="font-size:10px;color:var(--dim);cursor:pointer">
+        <input type="checkbox" id="cbParallax" onchange="onParallaxToggle()" style="vertical-align:middle"> Parallax
+      </label>
+      <label class="pl-only" style="font-size:10px;color:var(--dim);display:none;cursor:pointer">
+        <input type="checkbox" id="cbLayerIds" onchange="redraw()" style="vertical-align:middle"> ShowID
+      </label>
+      <button class="pl-only" id="btnPreview" onclick="openParallaxPreview()" style="display:none;font-size:10px;padding:2px 6px">▶ Preview</button>
+    </span>
   </div>
   <div id="room-tabs-bar"></div>
   <div id="canvas-wrap"><canvas id="mapCanvas"></canvas></div>
@@ -243,9 +255,34 @@ input[type="file"] { display:none; }
     <select id="envPreviewSelect" style="margin:4px 8px;font-size:11px;padding:2px 6px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px;" onchange="onEnvPreview()"></select>
     <div id="env-tile-preview" style="padding:4px 8px"></div>
   </div>
+  <div id="parallax-section" class="pl-only" style="display:none;margin-top:8px">
+    <h3>PARALLAX SPEEDS</h3>
+    <div style="font-size:10px;color:var(--dim);padding:0 8px;margin-bottom:4px">Layer 1 = 100%. Lower = slower.</div>
+    <div style="padding:4px 8px;font-size:11px;display:grid;grid-template-columns:auto 1fr auto;gap:4px;align-items:center">
+      <span>L1:</span><span style="color:var(--dim)">100% (fixed)</span><span></span>
+      <span>L2:</span><input type="number" id="plSpeed2" min="0" max="100" value="75" onchange="onParallaxSpeed(2)" style="width:50px;font-size:10px;padding:2px 4px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px"><span>%</span>
+      <span>L3:</span><input type="number" id="plSpeed3" min="0" max="100" value="50" onchange="onParallaxSpeed(3)" style="width:50px;font-size:10px;padding:2px 4px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px"><span>%</span>
+      <span>L4:</span><input type="number" id="plSpeed4" min="0" max="100" value="25" onchange="onParallaxSpeed(4)" style="width:50px;font-size:10px;padding:2px 4px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px"><span>%</span>
+    </div>
+  </div>
 </div>
 <div id="ctx-menu"></div>
 <div id="dg-overlay"><div id="dg-modal"></div></div>
+<div id="pl-preview-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1100">
+  <div id="pl-preview-modal" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--accent);border-radius:8px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.6)">
+    <div style="font-weight:bold;color:var(--accent);font-size:13px;margin-bottom:6px">Parallax Preview</div>
+    <canvas id="pl-preview-canvas" style="border:1px solid var(--border);image-rendering:pixelated;background:#000;display:block"></canvas>
+    <div style="margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <button onclick="plPrevToggle()" id="plPrevToggleBtn" style="padding:4px 10px;font-size:11px">⏸ Pause</button>
+      <button onclick="plPrevDir()" id="plPrevDirBtn" style="padding:4px 10px;font-size:11px">→ Right</button>
+      <span style="font-size:10px;color:var(--dim)">Speed:</span>
+      <input id="plPrevSpeed" type="number" value="2" min="0" max="20" style="width:50px;font-size:10px;padding:2px 4px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:2px">
+      <button onclick="plPrevApply()" style="padding:4px 10px;font-size:11px">Apply</button>
+      <span style="flex:1"></span>
+      <button onclick="closeParallaxPreview()" style="padding:4px 10px;font-size:11px;background:var(--accent2);color:#fff;border:1px solid var(--accent2);border-radius:3px">✕ Close</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const TILE_SIZE=16;
@@ -484,6 +521,31 @@ const ZONE_LABELS=['0:none','1:red','2:green','3:blue','4:yellow','5:magenta','6
 
 function genColl(tiles){return tiles.map(t=>(t>=0&&t<TILE_TO_COLL.length)?TILE_TO_COLL[t]:0);}
 function ensureColl(m){if(!m.collisionLayer||m.collisionLayer.length!==m.w*m.h)m.collisionLayer=genColl(m.tiles);return m;}
+
+// ======== PARALLAX LAYERS ========
+function ensureParallax(m){
+  if(!m.parallax){m.parallax={enabled:false,speeds:[100,75,50,25]};}
+  if(!m.parallax.speeds)m.parallax.speeds=[100,75,50,25];
+  return m;
+}
+function ensureLayer(m, n){
+  /* n=2,3,4. layer 1 is m.tiles. */
+  ensureParallax(m);
+  const key='layer'+n;
+  if(!m[key]||m[key].length!==m.w*m.h) m[key]=new Array(m.w*m.h).fill(0);
+  return m[key];
+}
+function getLayerArr(m, n){
+  if(n===1) return m.tiles;
+  return m['layer'+n];
+}
+function getLayerByEditMode(m){
+  if(editLayer==='tiles') return {arr:m.tiles, n:1};
+  if(editLayer==='l2') return {arr:ensureLayer(m,2), n:2};
+  if(editLayer==='l3') return {arr:ensureLayer(m,3), n:3};
+  if(editLayer==='l4') return {arr:ensureLayer(m,4), n:4};
+  return {arr:m.tiles, n:1};
+}
 function ensureRoomColl(r){if(!r.collisionLayer||r.collisionLayer.length!==r.w*r.h)r.collisionLayer=genColl(r.tiles);return r;}
 function ensureEnvLayer(m){if(!m.envLayer||m.envLayer.length!==m.w*m.h)m.envLayer=new Array(m.w*m.h).fill(0);return m;}
 function san(s){return(s||'').replace(/[^a-zA-Z0-9_]/g,'_').replace(/^(\d)/,'_$1')||'untitled';}
@@ -519,13 +581,17 @@ function setTool(t){
 function setLayer(l){
   editLayer=l;
   document.getElementById('layTiles').classList.toggle('active',l==='tiles');
+  document.getElementById('layL2').classList.toggle('active',l==='l2');
+  document.getElementById('layL3').classList.toggle('active',l==='l3');
+  document.getElementById('layL4').classList.toggle('active',l==='l4');
   document.getElementById('layCollision').classList.toggle('active',l==='collision');
   document.getElementById('laySpawn').classList.toggle('active',l==='spawn');
   document.getElementById('layEnv').classList.toggle('active',l==='env');
   document.getElementById('spawn-panel').style.display=l==='spawn'?'block':'none';
   document.getElementById('env-section').style.display=l==='env'?'block':'none';
+  const isTileLayer=(l==='tiles'||l==='l2'||l==='l3'||l==='l4');
   if(curTool!=='npc'){
-    document.getElementById('tile-section').style.display=l==='tiles'?'':'none';
+    document.getElementById('tile-section').style.display=isTileLayer?'':'none';
     document.getElementById('coll-section').style.display=l==='collision'?'':'none';
   }
   if(l==='spawn') buildZonePalette();
@@ -624,6 +690,143 @@ function onEnvPreview(){
     cv.title=TILE_NAMES[t];
     wrap.appendChild(cv);
   });
+}
+
+// ======== PARALLAX UI ========
+function onParallaxToggle(){
+  const m=proj.maps[active];if(!m)return;
+  ensureParallax(m);
+  m.parallax.enabled=document.getElementById('cbParallax').checked;
+  /* Show/hide parallax UI elements */
+  const show=m.parallax.enabled;
+  document.querySelectorAll('.pl-only').forEach(el=>{el.style.display=show?'':'none';});
+  /* Sync speed inputs to map's stored values */
+  if(show){
+    document.getElementById('plSpeed2').value=m.parallax.speeds[1];
+    document.getElementById('plSpeed3').value=m.parallax.speeds[2];
+    document.getElementById('plSpeed4').value=m.parallax.speeds[3];
+    document.getElementById('parallax-section').style.display='block';
+    /* Pre-allocate layers if missing */
+    ensureLayer(m,2);ensureLayer(m,3);ensureLayer(m,4);
+  } else {
+    document.getElementById('parallax-section').style.display='none';
+    if(['l2','l3','l4'].includes(editLayer)) setLayer('tiles');
+  }
+  redraw();
+}
+function onParallaxSpeed(layer){
+  const m=proj.maps[active];if(!m)return;
+  ensureParallax(m);
+  const v=parseInt(document.getElementById('plSpeed'+layer).value)||0;
+  m.parallax.speeds[layer-1]=Math.max(0,Math.min(100,v));
+  document.getElementById('plSpeed'+layer).value=m.parallax.speeds[layer-1];
+}
+function syncParallaxUI(){
+  /* Called when switching maps or loading project */
+  const m=active>=0?proj.maps[active]:null;
+  const cb=document.getElementById('cbParallax');
+  if(!m){cb.checked=false;document.querySelectorAll('.pl-only').forEach(el=>{el.style.display='none';});return;}
+  ensureParallax(m);
+  cb.checked=!!m.parallax.enabled;
+  const show=m.parallax.enabled;
+  document.querySelectorAll('.pl-only').forEach(el=>{el.style.display=show?'':'none';});
+  if(show){
+    document.getElementById('plSpeed2').value=m.parallax.speeds[1];
+    document.getElementById('plSpeed3').value=m.parallax.speeds[2];
+    document.getElementById('plSpeed4').value=m.parallax.speeds[3];
+    document.getElementById('parallax-section').style.display='block';
+  } else {
+    document.getElementById('parallax-section').style.display='none';
+  }
+}
+
+// ======== PARALLAX PREVIEW WINDOW ========
+let plPrev={canvas:null,ctx:null,running:false,dir:1,speed:2,scroll:0,timer:null};
+
+function openParallaxPreview(){
+  const m=proj.maps[active];if(!m||!m.parallax||!m.parallax.enabled)return;
+  ensureParallax(m);ensureLayer(m,2);ensureLayer(m,3);ensureLayer(m,4);
+  const overlay=document.getElementById('pl-preview-overlay');
+  const cv=document.getElementById('pl-preview-canvas');
+  /* Size: width=480 (3 screen widths to see scroll), height = map height * tile */
+  const ts=16;
+  const viewW=Math.min(480, m.w*ts);
+  cv.width=viewW;cv.height=m.h*ts;
+  cv.style.width=viewW+'px';cv.style.height=(m.h*ts)+'px';
+  plPrev.canvas=cv;plPrev.ctx=cv.getContext('2d');plPrev.ctx.imageSmoothingEnabled=false;
+  plPrev.running=true;plPrev.dir=1;plPrev.scroll=0;
+  plPrev.speed=parseFloat(document.getElementById('plPrevSpeed').value)||2;
+  document.getElementById('plPrevToggleBtn').textContent='⏸ Pause';
+  document.getElementById('plPrevDirBtn').textContent='→ Right';
+  overlay.style.display='block';
+  if(plPrev.timer)clearInterval(plPrev.timer);
+  plPrev.timer=setInterval(plPrevTick,33); /* ~30fps */
+}
+
+function closeParallaxPreview(){
+  document.getElementById('pl-preview-overlay').style.display='none';
+  if(plPrev.timer){clearInterval(plPrev.timer);plPrev.timer=null;}
+  plPrev.running=false;
+}
+
+function plPrevToggle(){
+  plPrev.running=!plPrev.running;
+  document.getElementById('plPrevToggleBtn').textContent=plPrev.running?'⏸ Pause':'▶ Play';
+}
+function plPrevDir(){
+  plPrev.dir=-plPrev.dir;
+  document.getElementById('plPrevDirBtn').textContent=plPrev.dir>0?'→ Right':'← Left';
+}
+function plPrevApply(){
+  plPrev.speed=parseFloat(document.getElementById('plPrevSpeed').value)||2;
+}
+
+function plPrevTick(){
+  const m=proj.maps[active];if(!m||!plPrev.canvas)return;
+  if(plPrev.running){plPrev.scroll+=plPrev.dir*plPrev.speed;}
+  const ts=16;
+  const cv=plPrev.canvas;const g=plPrev.ctx;
+  const W=cv.width,H=cv.height;
+  const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
+  g.fillStyle='#000';g.fillRect(0,0,W,H);
+  const speeds=m.parallax.speeds; /* [100,75,50,25] for L1..L4 */
+  /* Draw layers from back (4) to front (1), only where higher layers empty */
+  /* For each pixel column, choose the topmost non-empty layer at that scrolled position */
+  const mapPixW=m.w*ts;
+  for(let layer=4;layer>=1;layer--){
+    const speed=speeds[layer-1]/100; /* fraction 0..1 */
+    const arr=getLayerArr(m,layer);
+    if(!arr) continue;
+    for(let sx=0;sx<W;sx+=ts){
+      /* World x at this screen column */
+      const worldX=Math.floor(plPrev.scroll*speed)+sx;
+      /* Wrap into map */
+      const wx=((worldX%mapPixW)+mapPixW)%mapPixW;
+      const tx=Math.floor(wx/ts);
+      for(let ty=0;ty<m.h;ty++){
+        /* Check if a higher layer (lower number) is non-empty at this cell — for each layer's own column, use its own scroll */
+        let occluded=false;
+        for(let hl=1;hl<layer;hl++){
+          const hSpeed=speeds[hl-1]/100;
+          const hWorldX=Math.floor(plPrev.scroll*hSpeed)+sx;
+          const hwx=((hWorldX%mapPixW)+mapPixW)%mapPixW;
+          const htx=Math.floor(hwx/ts);
+          const hArr=getLayerArr(m,hl);
+          if(hArr&&hArr[ty*m.w+htx]){occluded=true;break;}
+        }
+        if(occluded)continue;
+        const t=arr[ty*m.w+tx]||0;
+        if(t&&t<envTiles.length){
+          const offX=wx%ts;
+          /* Draw tile, possibly clipped */
+          g.drawImage(envTiles[t],sx-offX,ty*ts,ts,ts);
+        }
+      }
+    }
+  }
+  /* Draw vertical screen markers every 256px to suggest screen edges */
+  g.strokeStyle='rgba(255,255,90,0.3)';g.lineWidth=1;
+  for(let x=0;x<W;x+=256){g.beginPath();g.moveTo(x+.5,0);g.lineTo(x+.5,H);g.stroke();}
 }
 
 // ======== NPC PANEL ========
@@ -753,7 +956,7 @@ function loadCur(){if(active<0)return;const m=proj.maps[active];ensureColl(m);
   if(isDg&&m.rooms.length>0){curRoom=m.currentRoom||0;if(curRoom>=m.rooms.length)curRoom=0;
     const r=m.rooms[curRoom];ensureRoomColl(r);m.w=r.w;m.h=r.h;m.tiles=r.tiles.slice();m.collisionLayer=r.collisionLayer.slice();
     document.getElementById('tbW').value=r.w;document.getElementById('tbH').value=r.h;buildRoomTabs(m);}
-  sel=null;cx=0;cy=0;if(curTool==='npc')buildNpcPanel();redraw();updateInfo();}
+  sel=null;cx=0;cy=0;if(curTool==='npc')buildNpcPanel();syncParallaxUI();redraw();updateInfo();}
 
 function buildRoomTabs(m){const bar=document.getElementById('room-tabs-bar');bar.innerHTML='';if(!m||!m.rooms)return;
   m.rooms.forEach((r,i)=>{const t=document.createElement('span');t.className='room-tab'+(i===curRoom?' active':'');t.textContent=r.name;t.onclick=()=>switchRoom(i);
@@ -789,8 +992,49 @@ function redraw(){
   canvas.width=w*ts;canvas.height=h*ts;ctx.imageSmoothingEnabled=false;
   // Choose tile images based on preview env
   const envTiles=tileImgByEnv[previewEnv]||tileImgByEnv[0];
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const t=m.tiles[y*w+x]||0;
-    if(t<envTiles.length)ctx.drawImage(envTiles[t],x*ts,y*ts,ts,ts);else{ctx.fillStyle='#200';ctx.fillRect(x*ts,y*ts,ts,ts);}}
+  ensureParallax(m);
+  const showIds=document.getElementById('cbLayerIds')&&document.getElementById('cbLayerIds').checked;
+  const isParallax=m.parallax&&m.parallax.enabled;
+  if(isParallax){
+    /* Render layers 4→1, with each layer drawn only where higher layers are empty.
+     * L1 (m.tiles) overlaps L2, L2 overlaps L3, L3 overlaps L4.
+     * Equivalently: at each cell, draw the highest non-empty layer (highest=closest to player). */
+    const l2=m.layer2||null,l3=m.layer3||null,l4=m.layer4||null;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+      const idx=y*w+x;
+      const t1=m.tiles[idx]||0;
+      const t2=l2?(l2[idx]||0):0;
+      const t3=l3?(l3[idx]||0):0;
+      const t4=l4?(l4[idx]||0):0;
+      let chosen=0,chosenLayer=0;
+      if(t1){chosen=t1;chosenLayer=1;}
+      else if(t2){chosen=t2;chosenLayer=2;}
+      else if(t3){chosen=t3;chosenLayer=3;}
+      else if(t4){chosen=t4;chosenLayer=4;}
+      if(chosen<envTiles.length)ctx.drawImage(envTiles[chosen],x*ts,y*ts,ts,ts);
+      else{ctx.fillStyle='#200';ctx.fillRect(x*ts,y*ts,ts,ts);}
+      /* Dim non-active layers when editing one */
+      if(editLayer==='l2'||editLayer==='l3'||editLayer==='l4'||editLayer==='tiles'){
+        const activeLayer={tiles:1,l2:2,l3:3,l4:4}[editLayer];
+        if(chosenLayer!==0&&chosenLayer!==activeLayer){
+          ctx.fillStyle='rgba(0,0,0,0.45)';ctx.fillRect(x*ts,y*ts,ts,ts);
+        }
+      }
+      /* Layer ID overlay */
+      if(showIds&&chosenLayer>0){
+        ctx.fillStyle='rgba(255,255,255,0.85)';
+        ctx.font=`bold ${Math.max(8,ts*0.5)}px monospace`;
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.strokeStyle='rgba(0,0,0,0.9)';ctx.lineWidth=2;
+        ctx.strokeText(String(chosenLayer),x*ts+ts/2,y*ts+ts/2);
+        ctx.fillText(String(chosenLayer),x*ts+ts/2,y*ts+ts/2);
+        ctx.textAlign='start';ctx.textBaseline='alphabetic';
+      }
+    }
+  } else {
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const t=m.tiles[y*w+x]||0;
+      if(t<envTiles.length)ctx.drawImage(envTiles[t],x*ts,y*ts,ts,ts);else{ctx.fillStyle='#200';ctx.fillRect(x*ts,y*ts,ts,ts);}}
+  }
   // Collision overlay
   if(editLayer==='collision'){ensureColl(m);
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){const c=m.collisionLayer[y*w+x]||0;
@@ -921,6 +1165,14 @@ function onResize(){if(active<0)return;const m=proj.maps[active];
   m.w=nw;m.h=nh;m.tiles=nt;m.collisionLayer=nc;
   if(m.spawnLayer){const ns=new Array(nw*nh).fill(0);for(let y=0;y<Math.min(nh,oldh);y++)for(let x=0;x<Math.min(nw,oldw);x++)ns[y*nw+x]=m.spawnLayer[y*oldw+x]||0;m.spawnLayer=ns;}
   if(m.envLayer){const ne=new Array(nw*nh).fill(0);for(let y=0;y<Math.min(nh,oldh);y++)for(let x=0;x<Math.min(nw,oldw);x++)ne[y*nw+x]=m.envLayer[y*oldw+x]||0;m.envLayer=ne;}
+  /* Resize parallax layers if they exist */
+  for(const k of ['layer2','layer3','layer4']){
+    if(m[k]){
+      const nl=new Array(nw*nh).fill(0);
+      for(let y=0;y<Math.min(nh,oldh);y++)for(let x=0;x<Math.min(nw,oldw);x++)nl[y*nw+x]=m[k][y*oldw+x]||0;
+      m[k]=nl;
+    }
+  }
   if(m.rooms&&m.rooms[curRoom]){m.rooms[curRoom].w=nw;m.rooms[curRoom].h=nh;m.rooms[curRoom].tiles=nt.slice();m.rooms[curRoom].collisionLayer=nc.slice();}
   redraw();updateInfo();}
 function fillBorder(){if(active<0)return;const m=proj.maps[active];ensureColl(m);const sc=TILE_TO_COLL[selTile]||0;
@@ -935,6 +1187,9 @@ function paint(x,y){const m=proj.maps[active];if(!m||x<0||x>=m.w||y<0||y>=m.h)re
   if(editLayer==='spawn'){ensureSpawnLayer(m);m.spawnLayer[y*m.w+x]=selZone;}
   else if(editLayer==='env'){ensureEnvLayer(m);m.envLayer[y*m.w+x]=selEnv;}
   else if(editLayer==='collision'){ensureColl(m);m.collisionLayer[y*m.w+x]=selColl;}
+  else if(editLayer==='l2'||editLayer==='l3'||editLayer==='l4'){
+    const lay=getLayerByEditMode(m);lay.arr[y*m.w+x]=selTile;
+  }
   else{m.tiles[y*m.w+x]=selTile;}redraw();}
 
 canvas.addEventListener('mousedown',e=>{e.preventDefault();if(active<0)return;hideCtxMenu();
