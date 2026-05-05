@@ -1,379 +1,300 @@
-# HAL — Portable 2D Game Engine
+# WindGame
 
-A hardware abstraction layer for building retro-style 2D games that run
-natively on both the **ZX Spectrum Next** (Z80, z88dk) and
-**Windows x64 / Linux** (SDL2).
+A 2D retro-style action/adventure engine with an integrated HTML map editor. Targets **Windows / Linux (SDL2)** and the **ZX Spectrum Next (z88dk)** from a single shared codebase via a Hardware Abstraction Layer.
 
-The game code is fully platform-independent: it calls HAL functions for
-display, input, sound, and file I/O. Two backend implementations handle the
-actual hardware.
+Repo: <https://github.com/omakuda/windgame>
 
 ---
 
-## Project Structure
+## Quick Start
+
+**Windows:**
+```cmd
+build.bat
+build.bat run
+```
+
+**Linux:**
+```sh
+./build.sh
+./build/out_linux/windgame
+```
+
+The build script auto-detects vcpkg. If `VCPKG_ROOT` is set in the environment, it's used directly; otherwise common install locations are searched. See [Building](#building) below.
+
+---
+
+## Project Layout
 
 ```
-hal_engine/
-  src/
-    hal/                         # Hardware Abstraction Layer
-      hal_types.h                # Portable types, screen/tile/sprite constants
-      hal_keybinds.h             # key_id_t enum, keybind_config_t, .cfg format
-      hal.h                      # Public API (the ONLY header game code needs)
-      next/
-        hal_next.c               # Spectrum Next backend (z88dk, esxDOS)
-      win64/
-        hal_win64.c              # Windows/Linux backend (SDL2)
-    game/                        # Platform-independent game code
-      main.c                     # Entry point, scenes, player, maps, HUD
-      overworld_events.h         # Event spawn system types & API
-      overworld_events.c         # Spawn lifecycle, AI, encounter detection
-      rng.h                      # 16-bit xorshift PRNG (header-only)
+windgame/
+  README.md                Engine & editor documentation (this file)
+  build.bat / build.sh     Auto-configuring build scripts
   build/
-    CMakeLists.txt               # CMake build for Windows/Linux
-    Makefile.next                # z88dk build for Spectrum Next
-  README.md                      # This file
+    CMakeLists.txt         Cross-platform build config
+    vcpkg.json             SDL2 + SDL2_mixer manifest
+    Makefile.next          ZX Spectrum Next build (z88dk)
+  src/
+    hal/                   Hardware Abstraction Layer
+      hal.h                Public API used by all game code
+      hal_types.h          Screen/tile/sprite constants, color_t
+      hal_keybinds.h       Key remapping, .cfg file format
+      win64/hal_win64.c    SDL2 backend (Windows / Linux)
+      next/hal_next.c      z88dk backend (ZX Spectrum Next)
+    game/
+      main.c               Scenes, player, action physics, debug menu
+      maps.h               World/action/dungeon map data
+      tunables.h           Runtime parameter struct + console table
+      debug_menu.h         Debug menu defines, action registry
+      overworld_events.c/h Event spawn AI, traveling encounters
+      rng.h                16-bit xorshift PRNG
+  tools/
+    map_editor.html        Standalone browser-based map editor
 ```
 
 ---
 
-## Architecture Overview
+## Engine Features
 
-### Virtual Screen
+### Scenes
+- **Overworld**: top-down free movement on tile-based maps. Multiple world maps registered in `world_maps[]` table; switchable from debug menu.
+- **Action**: Zelda 2-style sidescroller with platforming, ladders, sword attacks, projectile weapons.
+- **Scene transitions**: tile-triggered (transition tiles, dungeon entrances), with re-entry immunity to prevent immediate re-trigger.
 
-All game logic uses a fixed **256×192** pixel virtual resolution (the native
-ZX Spectrum display). On Windows/Linux the window is scaled 3× to 768×576.
-Coordinates, tile sizes, and sprite positions are always in virtual pixels.
+### Action-Scene Physics
+Ported from the Zelda 2 disassembly (FiendsOfTheElements/z2disassembly), scaled from NES 60fps to ~50fps:
 
-### Tiles
+- **Variable-height jump**: holding the jump button while rising applies lower gravity (`fy_grav_held`). Releasing applies normal gravity (`fy_grav`).
+- **Running jump boost**: horizontal speed > 25% of max adds extra impulse (~0.75 tiles of height).
+- **Air control**: independent air acceleration (`fx_air_accel`) lets the player steer mid-jump without exceeding the captured launch speed.
+- **Ladders**:
+  - Grab by pressing up/down while overlapping a ladder tile (zeroes horizontal motion).
+  - Climbing to the top auto-dismounts onto the surface.
+  - Standing on a ladder top and pressing down re-enters climbing mode.
+  - Jump-off works from any rung.
+- **Crouch**:
+  - Hold down on the ground to crouch.
+  - Disables horizontal input but preserves a small slide on entry that decays via friction.
+  - Hitbox shrinks to one tile (10x14) aligned with the bottom sprite — duck under threats.
+  - Hard landings (vspeed > threshold) force a brief crouch animation.
+- **Ice tiles**: tile 7 in action scenes uses lower friction.
+- **Terminal velocity** capped at `fy_max_fall`.
 
-16×16 pixel tiles. Maps are row-major uint8_t arrays where each byte is a
-tile index. The engine supports maps up to 256×256 tiles. Tile collision is
-table-driven with flags: `TILE_SOLID`, `TILE_PLATFORM` (one-way),
-`TILE_LADDER`, `TILE_DAMAGE`, `TILE_WATER`.
+### Tile System
+26 tile types covering both world and action scenes. Tile 7 (path/ice), tile 11 (town), tile 13 (forest), tile 24 (world_water) and tile 25 (world_road) are seamless tileable patterns.
 
-### Sprites
+- **Town and forest** patterns are loaded only on the overworld and blanked when entering action mode (`action_clear_ow_tiles()` / `ow_restore_tiles()`).
+- **Water (tile 10)** is bidirectional/passable on the overworld.
+- **Tile collision flags**: SOLID, PLATFORM, LADDER, DAMAGE, EXIT, TRANSITION, WATER, EMPTY.
+- **Background tile layer**: `hal_tilemap_set_bg(data, w, h, repeat)` draws behind the foreground tilemap, visible where the foreground tile pixel is 0. `repeat=1` wraps the bg pattern across the entire map.
 
-16×16 pixel sprites. The Next has 128 hardware sprites; the SDL2 backend
-composites them in software. Sprites have position, pattern index, palette,
-and flags (visible, mirror X/Y, rotate). Slot 0 is reserved for the player.
+### Combat
+- **Sword attack**: directional slash with adjustable duration.
+- **Bow**: shoots arrows that travel in 8 directions, configurable speed and lifetime.
+- **Equipment HUD** with consumable items (potions, ladder placement, etc.).
+- **Invulnerability frames** after taking damage (`invuln_time`).
+- **Health system**: 0..`player_hp` HP, restored at safe maps and via potions.
 
-### Input
+### Overworld Event System
+Random encounters appear as walking sprites that pursue the player:
+- **Spawn margin**: events spawn no closer than 3 tiles from the map edge.
+- **Player-biased spawning**: 70% chance of spawning within ~8 tiles of the player.
+- **Movement AI**: 60% chance to move toward the player, 40% random cardinal direction.
+- **Never stop**: events always have a direction, even after collisions.
+- **Edge bouncing**: at the 3-tile margin, events turn perpendicular to the edge, preferring the direction toward the player.
+- **Encounter types**: combat (varying enemy strength), safe (lone NPC, caravan, oasis), discovery, dungeon entry.
 
-16-bit bitmask polled once per frame: 4 directions + 6 action buttons + Menu
-\+ Bag. Supports keyboard (rebindable), gamepad (SDL2 GameController / 
-Kempston joystick).
+### Debug Menu (open with BTN3 while paused)
+Hierarchical 3-level navigation with scrolling support for long lists:
+1. **Main menu**: Load Map / Character Settings / Back to Overworld / Controls / Heal Full / Exit Game.
+2. **Load Map → category**: World Maps / Action Maps / Dungeons / Events.
+3. **Category → item**: lists all available maps; selecting loads that scene.
 
-### Keyboard Rebinding System
+For dungeons, a third level lists each room's labeled entry points (e.g. `left_door`, `right_ladder`); selecting one spawns the player directly there.
 
-The engine uses a **portable key_id_t** enum (51 values: A-Z, 0-9, Enter,
-Space, Shift, arrows, punctuation). Each platform maps these to native codes
-at poll time via a lookup table.
+### Character Settings Console (Debug → Character Settings, or BTN3 from debug menu)
+In-game runtime parameter editor with 17 tunables organized by category:
 
-**4 built-in default layouts** are compiled in as `const` data:
+**Vertical physics**: `fy_grav`, `fy_grav_held`, `fy_jump`, `fy_max_fall`, `fy_climb`, `land_crouch_thr`, `land_crouch_frm`
+**Horizontal physics**: `fx_max_speed`, `fx_accel`, `fx_air_accel`, `fx_air_max`
+**Combat**: `attack_dur`, `invuln_time`, `player_hp`, `arrow_speed`, `arrow_lifetime`
+**Overworld**: `ow_move_speed`
 
-| Slot | Name              | Movement     | Actions        |
-|------|-------------------|--------------|----------------|
-| 0    | EDSF+JKLUIO       | E/D/S/F      | J K L U I O    |
-| 1    | Arrows+ZXC/ASD    | Arrow keys   | Z X C A S D    |
-| 2    | Custom 3           | (= Layout 0) | (placeholder)  |
-| 3    | Custom 4           | (= Layout 0) | (placeholder)  |
+Controls: Up/Down to select, Left/Right to adjust by step, BTN1+arrows for fine +/-1 adjust, BTN2 to reset to default, BTN3 to exit.
 
-Each slot carries a primary + alt key per button (12 buttons × 2 keys = 24
-bindings). `hal_keys_set_layout(id)` copies a default into the mutable
-active config.
+### Keybind Editor
+Remap any input via the controls submenu. Saved to `keybinds.cfg` next to the executable.
 
-**Runtime rebinding** via `hal_keys_rebind(bind_index, primary_id, alt_id)`
-marks the config as "custom" (layout ID = 4).
+---
 
-**Save/load to `.cfg` files** — a compact 61-byte binary format:
+## Map Editor (`tools/map_editor.html`)
 
+Open the file in any modern browser. No install or server required — uses File System Access API for direct file save/open when supported.
+
+### Project Model
+- **Project file (.wgp)**: JSON with all maps, manifest, settings.
+- **Maps**: each has tiles, collision layer, optional spawn zones, env layer, NPCs, enemies, and parallax layers.
+- **Roles**: each map can be assigned a role (overworld, field_combat, safe_lone, dungeon_rooms, etc.) which determines how the C export wires it into the game.
+- **Save filename**: editable textbox in sidebar, with auto-increment toggle that adds/increments a 4-digit suffix on save.
+
+### Editing Layers
+Toggle between layers with the layer bar:
+- **Tiles**: standard tile placement; tile palette is context-filtered (world maps hide ladder/platform/water; action maps hide town/forest/world_water/world_road).
+- **Collision**: paint tile collision types separately from visuals.
+- **Spawn**: zone painting for event spawn restrictions.
+- **Environment**: per-tile environment ID (forest/desert/snow) for visual variants.
+
+### Tools
+- **Paint**: place tiles or collision IDs.
+- **Select**: rectangle marquee, copy/paste with Ctrl+C/V.
+- **NPC**: 6 NPC types with procedural sprites, place by clicking; enforces valid placement (not in walls, no overlaps).
+- **Enemy**: 6 enemy types with procedural sprites; mirrors the NPC tool but for combat-side placement. Right-click removes.
+
+### Dungeon View
+For dungeon-type maps containing multiple rooms:
+- **Overview mode**: full middle panel shows each room as a freeform draggable mini-map.
+- **Scroll wheel zoom** (1-8x) shows room contents.
+- **Double-click a room** to enter detailed editing.
+- **Dungeon View** button returns to overview.
+- **Right-click a room** starts a transition link: line follows the cursor, target rooms highlight green if they have transition tiles or red if not.
+- **Transition Editor modal**: shows side-by-side mini-maps of both rooms with transition tile dropdowns. Existing bindings listed at the bottom; OK commits, Cancel discards.
+- Transitions exported to C as `dungeon_transition_t[]` arrays.
+
+### Parallax Scrolling
+Toggle the **Parallax** checkbox in the toolbar to enable multi-layer mode for the current map:
+- **4 layers**: L1 (foreground/`m.tiles`), L2, L3, L4 (background). L1 overlaps L2, etc.
+- **Layer-edit buttons** (L2/L3/L4) appear in the layer bar.
+- **Per-layer scroll speed**: L1=100% (fixed), L2/L3/L4 editable 0-100%. Defaults: L2=75%, L3=50%, L4=25%.
+- **ShowID toggle**: overlays the layer number on each tile (only the topmost non-empty layer's number per cell).
+- When editing one layer, others dim to 45% for visual focus.
+
+### Parallax Preview Window
+Click the **Preview** button (visible when parallax is on) to open a modal that auto-scrolls all layers at their configured speeds:
+- Pause / Play toggle
+- Left / Right direction toggle
+- Speed input + Apply button
+- Close button
+- Yellow markers every 256px show screen-edge boundaries
+- The map wraps horizontally for continuous scroll demo
+
+### Day/Night Preview (dayNightExperiment branch)
+Dropdown in the Environment section: Day / Transition 1-4 / Night. Applies a blue-shifted darkening overlay on the canvas so you can preview how tiles will look at any time of day.
+
+### Export
+- **Save** / **Save As**: writes `.wgp` JSON.
+- **Export C**: generates `maps_data.h` consumed by `main.c`. Includes tile data, collision layers, NPC/enemy placements, room transitions, parallax settings, and a manifest mapping roles to their map data.
+
+### Browser Storage
+The editor uses the File System Access API (Chrome/Edge) for direct save. In other browsers it falls back to download dialogs. No data is sent over the network — everything stays local.
+
+---
+
+## Day/Night Cycle (experimental branch only)
+
+Available on the `dayNightExperiment` branch. To try it:
+```sh
+git checkout dayNightExperiment
+build.bat   # or build.sh
 ```
-Offset  Size  Field
-0       4     Magic "KCFG"
-4       1     Version (1)
-5       32    Config name (null-padded)
-37      12    Primary key_id per button
-49      12    Alt key_id per button
-        --
-        61 bytes total
-```
 
-`.cfg` files are cross-platform: the same file works on both Next (esxDOS)
-and Windows (stdio).
+### Schedule
+24 game-hours (1 hour = 30 real seconds at normal speed, full cycle = 12 minutes):
+- **0400-0800**: night to day transition
+- **0800-1600**: full day (8 hours)
+- **1600-2000**: day to night transition
+- **2000-0400**: full night (8 hours)
 
-### Event Spawn System
-
-The overworld uses a wave-based spawn cycle:
-
-1. **ACTIVATION** — 3–8 second delay on overworld entry before anything spawns.
-2. **WAITING** — Spawn timer counts down 3–8 s. Standing on a path tile
-   (tile 7) freezes the timer.
-3. **SPAWNED** — Group of 2–4 entities appears. They roam for 5 seconds
-   (blinking in the last second as a warning), then despawn. Cycle repeats.
-
-Spawn distribution is data-driven via `spawn_table_t` structs (enemy vs
-peaceful %, rarity tiers). Three built-in tables: DEFAULT, DANGEROUS,
-PEACEFUL.
-
-### Encounter Types
-
-| Type            | Action                              |
-|-----------------|-------------------------------------|
-| Enemy (weak/med/strong) | Enter combat action scene  |
-| Safe Zone       | Enter peaceful map (3 variants)     |
-| Friendly NPC    | Dialog overlay on overworld         |
-| Discovery       | Enter special action map            |
-
-### Peaceful Action Maps
-
-Three safe zone variants, each a side-scrolling platformer map with NPCs:
-
-- **Quiet Clearing** (16×12) — One NPC, flat ground, decorative blocks.
-- **Caravan** (30×12) — 4 NPCs, wagon blocks, campfire path tiles.
-- **Oasis Town** (50×12) — 7 NPCs, 4 buildings with doorway entrances, road.
-
-### RNG
-
-16-bit xorshift PRNG (header-only in `rng.h`). No multiply/divide for Z80
-efficiency. Period 65535. Seeded from frame counter at startup, stirred every
-frame.
+### Implementation
+- A 256-entry ARGB32 LUT is rebuilt whenever brightness changes (cached, only when `s_dn_brightness` differs).
+- Applied in `hal_frame_end`: every pixel goes through the LUT.
+- R and G scale linearly with brightness; B retains a small floor at night for a subtle blue shift.
+- **UI exemption**: `hal_daynight_ui_begin()` / `hal_daynight_ui_end()` mark UI pixels in a mask buffer; those pixels use the base palette so menus/HUD stay readable.
+- **Per-tile night variants**: `hal_tiles_load_night(data, first, count)` loads alternate tile patterns that replace base patterns when brightness < 128. Only tiles with loaded variants swap.
+- **Action scene slowdown**: time advances at 1/10 speed during `SCENE_ACTION` (frame accumulator).
+- **HUD clock**: shows `H:MM` with always-two-digit minutes (8:00, 8:10), 10-minute increments, blinking colon every 0.5s.
+- **dn_speed tunable** in the debug console: 0=frozen, 1=normal, up to 50x fast.
 
 ---
 
 ## Building
 
-### Windows / Linux (SDL2 + CMake)
+### Windows (Visual Studio + vcpkg)
 
-**Prerequisites:**
-- CMake 3.16+
-- SDL2 development libraries
-- SDL2_mixer (optional, for music)
-- A C99 compiler (MSVC, GCC, or Clang)
-
-**Install SDL2:**
-```bash
-# Ubuntu/Debian
-sudo apt install libsdl2-dev libsdl2-mixer-dev
-
-# macOS
-brew install sdl2 sdl2_mixer
-
-# Windows (vcpkg)
-vcpkg install sdl2 sdl2-mixer
+**One-time setup:**
+```cmd
+git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+C:\vcpkg\bootstrap-vcpkg.bat
+setx VCPKG_ROOT C:\vcpkg
 ```
+*(Restart your shell after `setx`, or set the var manually for the current session.)*
 
 **Build:**
-```bash
-cd build
-
-# Visual Studio
-cmake -B out -G "Visual Studio 17 2022" -A x64
-cmake --build out --config Release
-
-# MinGW
-cmake -B out -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
-cmake --build out
-
-# Linux / macOS
-cmake -B out -DCMAKE_BUILD_TYPE=Release
-cmake --build out
-
-# Debug build (enables hal_debug_print)
-cmake -B out -DCMAKE_BUILD_TYPE=Debug
-cmake --build out
+```cmd
+build.bat              :: Release build
+build.bat debug        :: Debug build
+build.bat run          :: Build and launch
+build.bat clean        :: Remove build artifacts
+build.bat next         :: ZX Spectrum Next build (requires z88dk)
+build.bat all          :: Windows + Next, package zip
+build.bat help         :: Show all options
 ```
 
-The executable is `out/game` (Linux) or `out/Release/game.exe` (Windows).
+**vcpkg location detection:**
+The script searches in this order:
+1. `%VCPKG_ROOT%` environment variable (preferred, set by user)
+2. `vcpkg.cmd` on `%PATH%`
+3. `C:\vcpkg`
+4. `C:\src\vcpkg`
+5. `%USERPROFILE%\vcpkg`
+6. `%USERPROFILE%\source\vcpkg`
+7. `D:\vcpkg`
 
-**SDL2 include path note:** The SDL2 backend uses `#include <SDL2/SDL.h>`.
-If your SDL2 installation puts headers directly in the include path (no
-`SDL2/` prefix), you may need to adjust or add a symlink.
+If none found, the script prints install instructions and exits.
+
+**Manual SDL2 (no vcpkg):** set `SDL2_DIR` to your SDL2 SDK root before running `build.bat`.
+
+### Linux (apt + system SDL2)
+
+```sh
+sudo apt install build-essential cmake libsdl2-dev libsdl2-mixer-dev
+./build.sh
+```
+
+The Linux script uses system SDL2 by default; vcpkg is supported but optional.
 
 ### ZX Spectrum Next (z88dk)
 
-**Prerequisites:**
-- [z88dk](https://github.com/z88dk/z88dk) installed and on PATH
-- CSpect or ZEsarUX emulator for testing
-
-**Build:**
-```bash
-cd build
-make -f Makefile.next            # release build
-make -f Makefile.next debug      # debug build (UART output)
-make -f Makefile.next clean      # clean build artifacts
+Install z88dk from <https://z88dk.org> or your package manager and ensure `zcc` is on PATH, then:
+```sh
+make -f build/Makefile.next
 ```
-
-Produces `game.nex` — load in CSpect or copy to SD card for real hardware.
-
-**Run in CSpect:**
-```bash
-CSpect -w3 -tv -mmc=./sdcard/ game.nex
-```
+or `build.bat next`.
 
 ---
 
-## HAL API Reference
+## Game Controls (default)
 
-Game code includes only `"hal/hal.h"`, which pulls in `hal_types.h` and
-`hal_keybinds.h`.
+| Action | Default Key |
+|---|---|
+| Move | Arrow keys |
+| Jump (BTN1) | Z |
+| Attack (BTN2) | X |
+| Menu (BTN3) | Esc |
+| Inventory | Tab |
 
-### System Lifecycle
-```c
-int  hal_init(void);           // init all subsystems, returns 0 on success
-void hal_shutdown(void);       // free all resources
-```
-
-### Frame Timing
-```c
-void     hal_frame_begin(void);   // start of frame (waits for vsync on Next)
-void     hal_frame_end(void);     // end of frame (flips buffers)
-uint32_t hal_frame_count(void);   // frames since init (wraps at 65535 on Z80)
-```
-
-### Input
-```c
-uint16_t hal_input_poll(void);      // poll all devices, returns INPUT_* bitmask
-uint16_t hal_input_pressed(void);   // edge-triggered: just pressed this frame
-uint16_t hal_input_released(void);  // edge-triggered: just released this frame
-```
-
-### Keyboard Config
-```c
-void    hal_keys_set_layout(uint8_t id);         // load built-in default 0-3
-uint8_t hal_keys_get_layout(void);               // current layout or CUSTOM (4)
-
-void    hal_keys_rebind(uint8_t bind, uint8_t primary, uint8_t alt);
-void    hal_keys_set_name(const char *name);
-void    hal_keys_reset_defaults(uint8_t id);
-
-int     hal_keys_save_config(const char *path);  // write active config to .cfg
-int     hal_keys_load_config(const char *path);  // load .cfg into active config
-
-const keybind_config_t *hal_keys_get_config(void);
-uint8_t hal_keys_get_bind(uint8_t bind, uint8_t which);
-```
-
-### Tilemap
-```c
-void    hal_tiles_load(const uint8_t *data, uint8_t first, uint8_t count);
-void    hal_tilemap_set(const uint8_t *data, uint16_t w, uint16_t h);
-void    hal_tilemap_scroll(int16_t sx, int16_t sy);
-void    hal_tilemap_draw(void);
-uint8_t hal_tilemap_get(uint16_t tx, uint16_t ty);
-```
-
-### Sprites
-```c
-void hal_sprite_patterns_load(const uint8_t *data, uint8_t first, uint8_t count);
-void hal_sprite_set(const sprite_desc_t *desc);
-void hal_sprite_show(uint8_t id, bool visible);
-void hal_sprite_hide_all(void);
-void hal_sprites_draw(void);
-```
-
-### Drawing Primitives
-```c
-void     hal_draw_rect(int16_t x, int16_t y, uint8_t w, uint8_t h, color_t c);
-uint8_t  hal_draw_char(int16_t x, int16_t y, char ch, color_t c);
-uint16_t hal_draw_text(int16_t x, int16_t y, const char *str, color_t c);
-void     hal_draw_number(int16_t x, int16_t y, int32_t value, color_t c);
-```
-
-### Sound
-```c
-void hal_sfx_load(sfx_id_t id, const uint8_t *data, uint16_t size);
-void hal_sfx_play(sfx_id_t id, uint8_t channel);
-void hal_sfx_stop(uint8_t channel);
-void hal_music_play(music_id_t id, const uint8_t *data, uint16_t size);
-void hal_music_stop(void);
-void hal_music_volume(uint8_t vol);
-void hal_music_update(void);   // call every frame
-```
-
-### File I/O
-```c
-int      hal_file_open(const char *path);
-uint16_t hal_file_read(int handle, void *buf, uint16_t size);
-void     hal_file_seek(int handle, uint32_t offset);
-void     hal_file_close(int handle);
-```
+Remap from the debug menu - Controls. Saved to `keybinds.cfg`.
 
 ---
 
-## Input Map
+## Branches
 
-```
-Button    key_id_t         Layout 1         Layout 2         Gamepad
---------  ---------------  ---------------  ---------------  --------
-Up        BIND_UP    = 0   E (alt: Up)      Up (alt: I)      D-pad Up
-Down      BIND_DOWN  = 1   D (alt: Down)    Down (alt: K)    D-pad Down
-Left      BIND_LEFT  = 2   S (alt: Left)    Left (alt: J)    D-pad Left
-Right     BIND_RIGHT = 3   F (alt: Right)   Right (alt: L)   D-pad Right
-Action 1  BIND_BTN1  = 4   J                Z                A
-Action 2  BIND_BTN2  = 5   K                X                B
-Action 3  BIND_BTN3  = 6   L                C                X
-Action 4  BIND_BTN4  = 7   U                A                Y
-Action 5  BIND_BTN5  = 8   I                S                LB
-Action 6  BIND_BTN6  = 9   O                D                RB
-Menu      BIND_MENU  = 10  Enter            Enter            Start
-Bag       BIND_BAG   = 11  B                B                Back
-```
+- **master**: stable trunk with all engine and editor features.
+- **dayNightExperiment**: adds the day/night cycle, time-of-day preview, and timer HUD. To merge later: `git checkout master && git merge dayNightExperiment`.
 
 ---
 
-## Constants Reference
+## Credits
 
-| Constant            | Value  | Description                    |
-|---------------------|--------|--------------------------------|
-| SCREEN_W/H          | 256/192| Virtual resolution             |
-| TILE_SIZE           | 16     | Pixels per tile                |
-| MAX_SPRITES         | 64     | Sprite budget                  |
-| SPRITE_W/H          | 16/16  | Sprite dimensions              |
-| BIND_COUNT          | 12     | Keyboard bindings per config   |
-| KEY_LAYOUT_COUNT    | 4      | Built-in default layouts       |
-| KEY_ID_COUNT        | 51     | Portable key identifiers       |
-| KEYBIND_FILE_SIZE   | 61     | .cfg file size in bytes        |
-| MAX_MAP_EVENTS      | 16     | Overworld event entity limit   |
-| EVENT_LINGER_TIME   | 250    | Spawn linger (5 s at 50 Hz)    |
-| SPAWN_TIMER_MIN/MAX | 150/400| Spawn wait range (3-8 s)       |
-| GRAVITY             | 1      | px/frame² (action scenes)      |
-| JUMP_FORCE          | -7     | Initial jump velocity          |
-| MOVE_SPEED          | 2      | Horizontal walk speed          |
-| MAX_FALL_SPEED      | 6      | Terminal fall velocity          |
-
----
-
-## Status / TODO
-
-Working:
-- HAL interface (all functions declared and implemented on both platforms)
-- Input polling with 4 rebindable keyboard layouts + gamepad
-- Save/load keyboard configs to .cfg files (cross-platform binary format)
-- Tilemap rendering and scroll
-- Sprite rendering
-- Tile collision (solid, platform, ladder, damage)
-- Action scene physics (gravity, jump, climb, move, attack timer, invuln)
-- Overworld event spawn lifecycle (activation → waiting → spawned → despawn)
-- 3 peaceful action map variants with NPC placement
-- Friendly NPC dialog system
-- Combat/safe/discovery encounter routing
-- HUD with phase indicators, HP, and scene labels
-- Pause menu and bag overlay
-
-Not yet implemented:
-- Sprite/tile pattern data (window opens but graphics are placeholder)
-- Layer 2 bank paging for drawing primitives on Next
-- Sound system (PT3/VT2 integration on Next, SDL_mixer stubs on PC)
-- Font bitmap (only 3 glyphs filled in win64 backend)
-- Weapon hitbox logic during attack state
-- Inventory/item system for bag overlay
-- File-based map loading (currently hardcoded arrays)
-- Breakable block logic (tile 3 marked but no handler)
-- Special move implementations for Btn3-6
-- Enemy AI in action combat scenes
-- Merchant shop UI and quest system for NPCs
-- NPC interaction/collision in peaceful maps
-- Building entrance detection in oasis town
-- Camera offset for NPC sprites in wide maps
-- Custom definitions for Layout 3 and 4 slots
-- Multiple overworld zones with different spawn tables
+- Sidescrolling physics ported from <https://github.com/FiendsOfTheElements/z2disassembly>
+- SDL2 for Windows/Linux backend
+- z88dk for ZX Spectrum Next backend
