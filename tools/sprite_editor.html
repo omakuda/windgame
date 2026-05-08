@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WindGame Sprite Editor</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;600;700&display=swap');
+
+:root {
+    --bg: #0a0a0f;
+    --panel: #12121a;
+    --border: #2a2a3a;
+    --text: #c8c8d8;
+    --accent: #4af;
+    --accent2: #f84;
+    --dim: #666;
+    --grid: #1a1a2a;
+    --hover: #1e1e30;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Space Grotesk',sans-serif; background:var(--bg); color:var(--text); display:flex; height:100vh; overflow:hidden; }
+.sidebar {
+    width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+}
+.sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: var(--dim);
+    padding: 12px 14px 6px; }
+.sprite-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+.sprite-item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px;
+    cursor: pointer; font-size: 13px; transition: background .1s;
+}
+.sprite-item:hover { background: var(--hover); }
+.sprite-item.active { background: var(--accent); color: #000; }
+.sprite-item .preview { width: 32px; height: 32px; image-rendering: pixelated; border: 1px solid var(--border); background: #000; flex-shrink: 0; }
+.sprite-item .info { display:flex; flex-direction:column; min-width:0; }
+.sprite-item .name { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sprite-item .id { font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--dim); }
+.sprite-item.active .id { color: #0008; }
+.sidebar-actions { padding: 8px; display:flex; gap:4px; flex-wrap:wrap; border-top:1px solid var(--border); }
+.sidebar-actions button, .toolbar button {
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:5px 10px;
+    background: var(--border); color: var(--text); border:none; border-radius:3px;
+    cursor:pointer; transition: background .1s;
+}
+.sidebar-actions button:hover, .toolbar button:hover { background: var(--accent); color:#000; }
+
+.main { flex:1; display:flex; flex-direction:column; min-width:0; }
+.toolbar {
+    display:flex; align-items:center; gap:8px; padding:8px 12px;
+    background: var(--panel); border-bottom:1px solid var(--border);
+    flex-wrap: wrap;
+}
+.toolbar .sep { width:1px; height:24px; background:var(--border); }
+.toolbar label { font-size:11px; color:var(--dim); }
+.toolbar input[type=text] {
+    font-family:'JetBrains Mono',monospace; font-size:12px; padding:4px 8px;
+    background:#0008; border:1px solid var(--border); color:var(--text); border-radius:3px; width:140px;
+}
+.toolbar select {
+    font-family:'JetBrains Mono',monospace; font-size:11px; padding:4px;
+    background:var(--border); color:var(--text); border:none; border-radius:3px;
+}
+
+.workspace { flex:1; display:flex; overflow:hidden; }
+.canvas-area { flex:1; display:flex; align-items:center; justify-content:center; position:relative; }
+#editor-canvas { image-rendering:pixelated; cursor:crosshair; border:1px solid var(--border); }
+.right-panel { width:200px; background:var(--panel); border-left:1px solid var(--border); display:flex; flex-direction:column; padding:8px; overflow-y:auto; }
+.right-panel h3 { font-size:10px; text-transform:uppercase; letter-spacing:1.5px; color:var(--dim); margin:8px 0 4px; }
+
+/* Palette grid */
+.palette-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:1px; }
+.palette-cell {
+    width:100%; aspect-ratio:1; border:1px solid transparent; cursor:pointer; border-radius:1px;
+}
+.palette-cell.active { border-color: #fff; box-shadow: 0 0 4px #fff8; }
+.palette-cell:hover { border-color: var(--accent); }
+
+.color-preview { display:flex; align-items:center; gap:8px; margin:6px 0; }
+.color-swatch { width:32px; height:32px; border:1px solid var(--border); border-radius:2px; }
+.color-info { font-family:'JetBrains Mono',monospace; font-size:11px; }
+
+.tool-buttons { display:flex; gap:4px; flex-wrap:wrap; margin: 4px 0; }
+.tool-btn {
+    font-size:18px; width:32px; height:32px; display:flex; align-items:center; justify-content:center;
+    background:var(--border); border:none; border-radius:3px; cursor:pointer; color:var(--text);
+}
+.tool-btn.active { background:var(--accent); color:#000; }
+.tool-btn:hover { background:var(--accent); color:#000; }
+
+/* Export modal */
+.modal-overlay {
+    position:fixed; inset:0; background:#000a; display:none; align-items:center; justify-content:center; z-index:100;
+}
+.modal-overlay.show { display:flex; }
+.modal {
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:20px; max-width:700px; width:90%; max-height:80vh; overflow-y:auto;
+}
+.modal h2 { font-size:14px; margin-bottom:12px; color:var(--accent); }
+.modal textarea {
+    width:100%; height:300px; font-family:'JetBrains Mono',monospace; font-size:11px;
+    background:#000; color:#8f8; border:1px solid var(--border); border-radius:4px; padding:8px;
+    resize:vertical;
+}
+.modal button { margin-top:10px; }
+.modal .close-btn {
+    float:right; background:none; border:none; color:var(--dim); font-size:18px; cursor:pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Sprites</h2>
+    <div class="sprite-list" id="spriteList"></div>
+    <div class="sidebar-actions">
+        <button onclick="addSprite()">+ New</button>
+        <button onclick="dupSprite()">Dup</button>
+        <button onclick="delSprite()">Del</button>
+        <button onclick="showExport()">Export C</button>
+        <button onclick="showImport()">Import</button>
+        <button onclick="saveToLocal()">Save</button>
+        <button onclick="loadFromLocal()">Load</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="toolbar">
+        <label>Name:</label>
+        <input type="text" id="spriteName" placeholder="e.g. player_top" oninput="renameSprite()">
+        <div class="sep"></div>
+        <label>Assoc:</label>
+        <select id="spriteAssoc" onchange="changeAssoc()">
+            <option value="">-- none --</option>
+            <option value="player_ow">Player (Overworld) [1]</option>
+            <option value="player_top">Player Top [2]</option>
+            <option value="player_bot">Player Bottom [3]</option>
+            <option value="player_crouch">Player Crouch [14]</option>
+            <option value="enemy_weak">Enemy Weak [4]</option>
+            <option value="enemy_medium">Enemy Medium [5]</option>
+            <option value="enemy_strong">Enemy Strong [6]</option>
+            <option value="safe_zone">Safe Zone [7]</option>
+            <option value="friendly">Friendly NPC [8]</option>
+            <option value="discovery">Discovery [9]</option>
+            <option value="npc_merchant">NPC Merchant [10]</option>
+            <option value="npc_healer">NPC Healer [11]</option>
+            <option value="npc_sage">NPC Sage [12]</option>
+            <option value="npc_wanderer">NPC Wanderer [13]</option>
+        </select>
+        <div class="sep"></div>
+        <label>Grid:</label>
+        <input type="checkbox" id="showGrid" checked onchange="draw()">
+        <div class="sep"></div>
+        <button onclick="clearCanvas()">Clear</button>
+        <button onclick="mirrorH()">Mirror H</button>
+        <button onclick="mirrorV()">Mirror V</button>
+        <button onclick="shiftUp()">↑</button>
+        <button onclick="shiftDown()">↓</button>
+        <button onclick="shiftLeft()">←</button>
+        <button onclick="shiftRight()">→</button>
+    </div>
+
+    <div class="workspace">
+        <div class="canvas-area">
+            <canvas id="editor-canvas" width="512" height="512"></canvas>
+        </div>
+        <div class="right-panel">
+            <h3>Tool</h3>
+            <div class="tool-buttons">
+                <button class="tool-btn active" data-tool="draw" title="Draw (D)">✏️</button>
+                <button class="tool-btn" data-tool="erase" title="Erase (E)">🧹</button>
+                <button class="tool-btn" data-tool="fill" title="Fill (F)">🪣</button>
+                <button class="tool-btn" data-tool="pick" title="Pick Color (P)">💉</button>
+                <button class="tool-btn" data-tool="select" title="Select (S)">⬚</button>
+            </div>
+
+            <h3>Color</h3>
+            <div class="color-preview">
+                <div class="color-swatch" id="colorSwatch"></div>
+                <div class="color-info" id="colorInfo">0x00</div>
+            </div>
+            <div style="font-size:10px;color:var(--dim);margin:4px 0;">Recent:</div>
+            <div id="recentRow" style="display:flex;flex-wrap:wrap;gap:1px;margin-bottom:6px;min-height:18px;"></div>
+            <div class="palette-grid" id="paletteGrid"></div>
+
+            <h3>Preview</h3>
+            <canvas id="preview1x" width="16" height="16" style="image-rendering:pixelated;width:64px;height:64px;border:1px solid var(--border);margin:4px 0;"></canvas>
+            <canvas id="preview2x" width="32" height="32" style="image-rendering:pixelated;width:64px;height:64px;border:1px solid var(--border);margin:4px 0;"></canvas>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="exportModal">
+    <div class="modal">
+        <button class="close-btn" onclick="closeModals()">&times;</button>
+        <h2>Export — C Sprite Data</h2>
+        <p style="font-size:12px;color:var(--dim);margin-bottom:8px;">
+            Paste into hal_win64.c init or load via hal_sprites_load. Named sprites auto-map to pattern IDs.
+        </p>
+        <textarea id="exportText" readonly></textarea>
+        <button onclick="copyExport()">Copy to Clipboard</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="importModal">
+    <div class="modal">
+        <button class="close-btn" onclick="closeModals()">&times;</button>
+        <h2>Import — C Sprite Data or JSON</h2>
+        <textarea id="importText" placeholder="Paste C array or JSON here..."></textarea>
+        <button onclick="doImport()">Import</button>
+    </div>
+</div>
+
+<script>
+const W=16, H=16;
+const ASSOC_TO_PATTERN = {
+    "player_ow":1,"player_top":2,"player_bot":3,"player_crouch":14,
+    "enemy_weak":4,"enemy_medium":5,"enemy_strong":6,
+    "safe_zone":7,"friendly":8,"discovery":9,
+    "npc_merchant":10,"npc_healer":11,"npc_sage":12,"npc_wanderer":13
+};
+
+// 8-bit 332 palette: RRRGGGBB
+function idx332toRGB(i){
+    const r=((i>>5)&7)*255/7, g=((i>>2)&7)*255/7, b=(i&3)*255/3;
+    return [Math.round(r),Math.round(g),Math.round(b)];
+}
+function rgb332css(i){
+    const [r,g,b]=idx332toRGB(i);
+    return `rgb(${r},${g},${b})`;
+}
+
+let sprites = []; // {name, assoc, pixels: Uint8Array(256)}
+let curIdx = 0;
+let curColor = 0x1B; // blue default
+let curTool = 'draw';
+let mouseDown = false;
+let mouseBtn = 0;
+
+// Undo/redo
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 50;
+function pushUndo(){
+  const s=cur();if(!s)return;
+  undoStack.push(new Uint8Array(s.pixels));
+  if(undoStack.length>MAX_UNDO) undoStack.shift();
+  redoStack.length=0;
+}
+function undo(){
+  const s=cur();if(!s||!undoStack.length)return;
+  redoStack.push(new Uint8Array(s.pixels));
+  s.pixels.set(undoStack.pop());
+  draw();
+}
+function redo(){
+  const s=cur();if(!s||!redoStack.length)return;
+  undoStack.push(new Uint8Array(s.pixels));
+  s.pixels.set(redoStack.pop());
+  draw();
+}
+
+// Recently used colors (persisted in localStorage)
+let recentColors = JSON.parse(localStorage.getItem('wg_recent_colors')||'[]');
+function addRecentColor(c){
+  if(c===0) return; // skip transparent
+  recentColors=recentColors.filter(x=>x!==c);
+  recentColors.unshift(c);
+  if(recentColors.length>16) recentColors.length=16;
+  localStorage.setItem('wg_recent_colors',JSON.stringify(recentColors));
+  updateRecentColors();
+}
+function updateRecentColors(){
+  const row=document.getElementById('recentRow');if(!row)return;
+  row.innerHTML='';
+  recentColors.forEach(c=>{
+    const d=document.createElement('div');d.className='palette-cell';
+    d.style.background=rgb332css(c);d.style.width='16px';d.style.height='16px';
+    d.title='0x'+c.toString(16).toUpperCase().padStart(2,'0');
+    d.onclick=()=>selectColor(c);
+    row.appendChild(d);
+  });
+}
+
+// Copy/paste selection
+let clipboard = null; // {w,h,pixels:Uint8Array}
+let selStart = null; // {x,y} or null
+let selEnd = null;
+let selActive = false;
+
+const canvas = document.getElementById('editor-canvas');
+const ctx = canvas.getContext('2d');
+const CELL = canvas.width / W; // 32px per cell
+
+// Build palette
+const palGrid = document.getElementById('paletteGrid');
+for(let i=0;i<256;i++){
+    const d=document.createElement('div');
+    d.className='palette-cell';
+    d.style.background=rgb332css(i);
+    d.dataset.idx=i;
+    d.onclick=()=>selectColor(i);
+    if(i===0) d.title='Transparent (0x00)';
+    palGrid.appendChild(d);
+}
+
+function selectColor(i){
+    curColor=i;
+    document.querySelectorAll('.palette-cell').forEach(c=>c.classList.toggle('active',+c.dataset.idx===i));
+    document.getElementById('colorSwatch').style.background=i===0?'repeating-conic-gradient(#333 0% 25%, #111 0% 50%) 50% / 8px 8px':rgb332css(i);
+    document.getElementById('colorInfo').textContent='0x'+i.toString(16).toUpperCase().padStart(2,'0');
+}
+selectColor(curColor);
+
+// Tool selection
+document.querySelectorAll('.tool-btn').forEach(b=>{
+    b.onclick=()=>{
+        document.querySelectorAll('.tool-btn').forEach(x=>x.classList.remove('active'));
+        b.classList.add('active');
+        curTool=b.dataset.tool;
+    };
+});
+
+function cur(){ return sprites[curIdx]; }
+
+function draw(){
+    const s=cur(); if(!s) return;
+    ctx.fillStyle='#000';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    // Draw pixels
+    for(let y=0;y<H;y++){
+        for(let x=0;x<W;x++){
+            const c=s.pixels[y*W+x];
+            if(c===0){
+                // Transparent checkerboard
+                ctx.fillStyle='#111'; ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+                ctx.fillStyle='#1a1a1a';
+                ctx.fillRect(x*CELL,y*CELL,CELL/2,CELL/2);
+                ctx.fillRect(x*CELL+CELL/2,y*CELL+CELL/2,CELL/2,CELL/2);
+            } else {
+                ctx.fillStyle=rgb332css(c);
+                ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
+            }
+        }
+    }
+    // Grid
+    if(document.getElementById('showGrid').checked){
+        ctx.strokeStyle='#ffffff10';
+        ctx.lineWidth=1;
+        for(let i=0;i<=W;i++){
+            ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,canvas.height);ctx.stroke();
+            ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(canvas.width,i*CELL);ctx.stroke();
+        }
+    }
+    // Selection rectangle
+    if(selStart&&selEnd&&curTool==='select'){
+        const x0=Math.min(selStart.x,selEnd.x)*CELL,y0=Math.min(selStart.y,selEnd.y)*CELL;
+        const x1=(Math.max(selStart.x,selEnd.x)+1)*CELL,y1=(Math.max(selStart.y,selEnd.y)+1)*CELL;
+        ctx.strokeStyle='#ff0';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+        ctx.strokeRect(x0,y0,x1-x0,y1-y0);
+        ctx.setLineDash([]);
+    }
+    updatePreviews();
+    updateList();
+}
+
+function updatePreviews(){
+    const s=cur(); if(!s) return;
+    // 1x
+    const c1=document.getElementById('preview1x').getContext('2d');
+    const id1=c1.createImageData(16,16);
+    for(let i=0;i<256;i++){
+        const [r,g,b]=idx332toRGB(s.pixels[i]);
+        id1.data[i*4]=r; id1.data[i*4+1]=g; id1.data[i*4+2]=b;
+        id1.data[i*4+3]=s.pixels[i]===0?0:255;
+    }
+    c1.putImageData(id1,0,0);
+    // 2x (for stacked preview: if name contains "top", show with "bot" below)
+    const c2=document.getElementById('preview2x').getContext('2d');
+    const id2=c2.createImageData(32,32);
+    // Just show 2x version
+    for(let y=0;y<16;y++) for(let x=0;x<16;x++){
+        const [r,g,b]=idx332toRGB(s.pixels[y*16+x]);
+        const a=s.pixels[y*16+x]===0?0:255;
+        for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++){
+            const pi=((y*2+dy)*32+(x*2+dx))*4;
+            id2.data[pi]=r;id2.data[pi+1]=g;id2.data[pi+2]=b;id2.data[pi+3]=a;
+        }
+    }
+    c2.putImageData(id2,0,0);
+}
+
+function updateList(){
+    const list=document.getElementById('spriteList');
+    list.innerHTML='';
+    sprites.forEach((s,i)=>{
+        const div=document.createElement('div');
+        div.className='sprite-item'+(i===curIdx?' active':'');
+        const cv=document.createElement('canvas');
+        cv.width=16;cv.height=16;cv.className='preview';
+        const c=cv.getContext('2d');
+        const id=c.createImageData(16,16);
+        for(let j=0;j<256;j++){
+            const [r,g,b]=idx332toRGB(s.pixels[j]);
+            id.data[j*4]=r;id.data[j*4+1]=g;id.data[j*4+2]=b;
+            id.data[j*4+3]=s.pixels[j]===0?0:255;
+        }
+        c.putImageData(id,0,0);
+        const info=document.createElement('div');
+        info.className='info';
+        const nm=document.createElement('div');nm.className='name';nm.textContent=s.name||'(unnamed)';
+        const idtxt=document.createElement('div');idtxt.className='id';
+        const pid=s.assoc?ASSOC_TO_PATTERN[s.assoc]:'?';
+        idtxt.textContent=`pat:${pid} ${s.assoc||''}`;
+        info.appendChild(nm);info.appendChild(idtxt);
+        div.appendChild(cv);div.appendChild(info);
+        div.onclick=()=>{curIdx=i;syncUI();draw();}
+        list.appendChild(div);
+    });
+}
+
+function syncUI(){
+    const s=cur();
+    document.getElementById('spriteName').value=s?s.name:'';
+    document.getElementById('spriteAssoc').value=s?s.assoc:'';
+}
+
+// Canvas interaction
+function canvasXY(e){
+    const r=canvas.getBoundingClientRect();
+    return [Math.floor((e.clientX-r.left)/CELL), Math.floor((e.clientY-r.top)/CELL)];
+}
+
+function applyTool(x,y){
+    const s=cur(); if(!s||x<0||x>=W||y<0||y>=H) return;
+    if(curTool==='draw'){s.pixels[y*W+x]=curColor;addRecentColor(curColor);}
+    else if(curTool==='erase') s.pixels[y*W+x]=0;
+    else if(curTool==='pick'){selectColor(s.pixels[y*W+x]); curTool='draw'; document.querySelectorAll('.tool-btn').forEach(b=>b.classList.toggle('active',b.dataset.tool==='draw'));}
+    else if(curTool==='fill'){floodFill(s.pixels,x,y,s.pixels[y*W+x],curColor);addRecentColor(curColor);}
+    else if(curTool==='select') return; // handled by mouse events
+    draw();
+}
+
+function floodFill(px,x,y,target,replacement){
+    if(target===replacement) return;
+    const stack=[[x,y]];
+    while(stack.length){
+        const [cx,cy]=stack.pop();
+        if(cx<0||cx>=W||cy<0||cy>=H) continue;
+        if(px[cy*W+cx]!==target) continue;
+        px[cy*W+cx]=replacement;
+        stack.push([cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]);
+    }
+}
+
+function copySelection(){
+  if(!selStart||!selEnd) return;
+  const s=cur();if(!s)return;
+  const x0=Math.min(selStart.x,selEnd.x),y0=Math.min(selStart.y,selEnd.y);
+  const x1=Math.max(selStart.x,selEnd.x),y1=Math.max(selStart.y,selEnd.y);
+  const w=x1-x0+1,h=y1-y0+1;
+  clipboard={w,h,pixels:new Uint8Array(w*h)};
+  for(let dy=0;dy<h;dy++)for(let dx=0;dx<w;dx++)
+    clipboard.pixels[dy*w+dx]=s.pixels[(y0+dy)*W+(x0+dx)];
+}
+function pasteSelection(){
+  if(!clipboard)return;const s=cur();if(!s)return;
+  pushUndo();
+  const px=selStart?Math.min(selStart.x,selEnd?selEnd.x:selStart.x):0;
+  const py=selStart?Math.min(selStart.y,selEnd?selEnd.y:selStart.y):0;
+  for(let dy=0;dy<clipboard.h;dy++)for(let dx=0;dx<clipboard.w;dx++){
+    const tx=px+dx,ty=py+dy;
+    if(tx>=0&&tx<W&&ty>=0&&ty<H) s.pixels[ty*W+tx]=clipboard.pixels[dy*clipboard.w+dx];
+  }
+  draw();
+}
+
+let undoSavedThisStroke=false;
+canvas.onmousedown=(e)=>{
+  mouseDown=true;mouseBtn=e.button;const [x,y]=canvasXY(e);
+  if(e.button===2){selectColor(cur().pixels[y*W+x]);return;}
+  if(curTool==='select'){selStart={x,y};selEnd={x,y};selActive=true;draw();return;}
+  if(!undoSavedThisStroke){pushUndo();undoSavedThisStroke=true;}
+  applyTool(x,y);
+};
+canvas.onmousemove=(e)=>{
+  if(!mouseDown||mouseBtn!==0) return;
+  const [x,y]=canvasXY(e);
+  if(curTool==='select'&&selActive){selEnd={x,y};draw();return;}
+  if(curTool==='draw'||curTool==='erase') applyTool(x,y);
+};
+canvas.onmouseup=()=>{mouseDown=false;undoSavedThisStroke=false;if(curTool==='select')selActive=false;};
+canvas.oncontextmenu=(e)=>e.preventDefault();
+
+// Sprite management
+function addSprite(){
+    sprites.push({name:'sprite_'+sprites.length, assoc:'', pixels:new Uint8Array(256)});
+    curIdx=sprites.length-1;
+    syncUI();draw();
+}
+function dupSprite(){
+    const s=cur(); if(!s) return;
+    sprites.push({name:s.name+'_copy', assoc:'', pixels:new Uint8Array(s.pixels)});
+    curIdx=sprites.length-1;
+    syncUI();draw();
+}
+function delSprite(){
+    if(sprites.length<=1) return;
+    sprites.splice(curIdx,1);
+    if(curIdx>=sprites.length) curIdx=sprites.length-1;
+    syncUI();draw();
+}
+function renameSprite(){
+    const s=cur(); if(!s) return;
+    s.name=document.getElementById('spriteName').value;
+    // Auto-detect association from name
+    const nm=s.name.toLowerCase();
+    for(const k of Object.keys(ASSOC_TO_PATTERN)){
+        if(nm===k||nm.replace(/[^a-z_]/g,'')===k){
+            s.assoc=k;
+            document.getElementById('spriteAssoc').value=k;
+            break;
+        }
+    }
+    updateList();
+}
+function changeAssoc(){
+    const s=cur(); if(!s) return;
+    s.assoc=document.getElementById('spriteAssoc').value;
+    updateList();
+}
+
+// Transform operations
+function clearCanvas(){ const s=cur(); if(s){pushUndo();s.pixels.fill(0);} draw(); }
+function mirrorH(){
+    const s=cur(); if(!s) return; pushUndo();
+    for(let y=0;y<H;y++) for(let x=0;x<W/2;x++){
+        const t=s.pixels[y*W+x]; s.pixels[y*W+x]=s.pixels[y*W+(W-1-x)]; s.pixels[y*W+(W-1-x)]=t;
+    } draw();
+}
+function mirrorV(){
+    const s=cur(); if(!s) return; pushUndo();
+    for(let y=0;y<H/2;y++) for(let x=0;x<W;x++){
+        const t=s.pixels[y*W+x]; s.pixels[y*W+x]=s.pixels[(H-1-y)*W+x]; s.pixels[(H-1-y)*W+x]=t;
+    } draw();
+}
+function shiftUp(){
+    const s=cur(); if(!s) return; pushUndo();
+    const row=s.pixels.slice(0,W);
+    s.pixels.copyWithin(0,W); s.pixels.set(row,(H-1)*W); draw();
+}
+function shiftDown(){
+    const s=cur(); if(!s) return; pushUndo();
+    const row=s.pixels.slice((H-1)*W);
+    s.pixels.copyWithin(W,0); s.pixels.set(row,0); draw();
+}
+function shiftLeft(){
+    const s=cur(); if(!s) return; pushUndo();
+    for(let y=0;y<H;y++){const v=s.pixels[y*W]; for(let x=0;x<W-1;x++) s.pixels[y*W+x]=s.pixels[y*W+x+1]; s.pixels[y*W+W-1]=v;} draw();
+}
+function shiftRight(){
+    const s=cur(); if(!s) return; pushUndo();
+    for(let y=0;y<H;y++){const v=s.pixels[y*W+W-1]; for(let x=W-1;x>0;x--) s.pixels[y*W+x]=s.pixels[y*W+x-1]; s.pixels[y*W]=v;} draw();
+}
+
+// Export
+function showExport(){
+    let out='/* WindGame Sprite Data — auto-generated by sprite_editor.html */\n\n';
+    // Generate pattern ID assignments
+    out+='/*  Name → Pattern mapping:\n';
+    sprites.forEach(s=>{
+        const pid=s.assoc?ASSOC_TO_PATTERN[s.assoc]:'N/A';
+        out+=` *   ${s.name} → pattern ${pid} (${s.assoc||'unassigned'})\n`;
+    });
+    out+=' */\n\n';
+
+    // Generate C arrays
+    sprites.forEach(s=>{
+        const pid=s.assoc?ASSOC_TO_PATTERN[s.assoc]:null;
+        const cname=s.name.replace(/[^a-zA-Z0-9_]/g,'_');
+        out+=`/* ${s.name}${pid!==null?` — pattern ${pid}`:''} */\n`;
+        out+=`static const uint8_t sprite_${cname}[${W}*${H}] = {\n`;
+        for(let y=0;y<H;y++){
+            out+='    ';
+            for(let x=0;x<W;x++){
+                out+='0x'+s.pixels[y*W+x].toString(16).toUpperCase().padStart(2,'0');
+                if(y<H-1||x<W-1) out+=',';
+            }
+            out+='\n';
+        }
+        out+='};\n\n';
+    });
+
+    // Generate loader function
+    out+='/* Copy this into hal_init() to load sprites: */\n';
+    out+='static void load_editor_sprites(void) {\n';
+    sprites.forEach(s=>{
+        if(!s.assoc) return;
+        const pid=ASSOC_TO_PATTERN[s.assoc];
+        const cname=s.name.replace(/[^a-zA-Z0-9_]/g,'_');
+        out+=`    memcpy(&s_sprite_patterns[${pid}], sprite_${cname}, ${W}*${H});\n`;
+    });
+    out+='}\n';
+
+    document.getElementById('exportText').value=out;
+    document.getElementById('exportModal').classList.add('show');
+}
+function copyExport(){
+    document.getElementById('exportText').select();
+    document.execCommand('copy');
+}
+
+function showImport(){
+    document.getElementById('importText').value='';
+    document.getElementById('importModal').classList.add('show');
+}
+function doImport(){
+    const txt=document.getElementById('importText').value.trim();
+    // Try JSON first
+    try{
+        const data=JSON.parse(txt);
+        if(Array.isArray(data)){
+            data.forEach(d=>{
+                sprites.push({name:d.name||'imported',assoc:d.assoc||'',pixels:new Uint8Array(d.pixels||256)});
+            });
+            curIdx=sprites.length-1; syncUI(); draw();
+            closeModals(); return;
+        }
+    }catch(e){}
+    // Try C array parsing
+    const re=/sprite_(\w+)\[[\d*]+\]\s*=\s*\{([^}]+)\}/g;
+    let m, count=0;
+    while((m=re.exec(txt))!==null){
+        const name=m[1];
+        const vals=m[2].match(/0x[0-9A-Fa-f]{2}/g);
+        if(vals&&vals.length===256){
+            const px=new Uint8Array(vals.map(v=>parseInt(v,16)));
+            let assoc='';
+            for(const k of Object.keys(ASSOC_TO_PATTERN)){
+                if(name.toLowerCase().includes(k)){assoc=k;break;}
+            }
+            sprites.push({name,assoc,pixels:px});
+            count++;
+        }
+    }
+    if(count>0){curIdx=sprites.length-1;syncUI();draw();closeModals();return;}
+    alert('Could not parse input. Use JSON array or C arrays named sprite_xxx.');
+}
+function closeModals(){
+    document.querySelectorAll('.modal-overlay').forEach(m=>m.classList.remove('show'));
+}
+
+// LocalStorage save/load
+function saveToLocal(){
+    const data=sprites.map(s=>({name:s.name,assoc:s.assoc,pixels:Array.from(s.pixels)}));
+    localStorage.setItem('windgame_sprites',JSON.stringify(data));
+    alert('Saved '+sprites.length+' sprites');
+}
+function loadFromLocal(){
+    const raw=localStorage.getItem('windgame_sprites');
+    if(!raw){alert('No saved data');return;}
+    const data=JSON.parse(raw);
+    sprites=data.map(d=>({name:d.name,assoc:d.assoc||'',pixels:new Uint8Array(d.pixels)}));
+    curIdx=0;syncUI();draw();
+}
+
+// Keyboard shortcuts
+document.onkeydown=(e)=>{
+    if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+    if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key==='y'){e.preventDefault();redo();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key==='c'){e.preventDefault();copySelection();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key==='v'){e.preventDefault();pasteSelection();return;}
+    if(e.key==='d') document.querySelector('[data-tool=draw]').click();
+    if(e.key==='e') document.querySelector('[data-tool=erase]').click();
+    if(e.key==='f') document.querySelector('[data-tool=fill]').click();
+    if(e.key==='p') document.querySelector('[data-tool=pick]').click();
+    if(e.key==='s'&&!e.ctrlKey) document.querySelector('[data-tool=select]').click();
+    if(e.key==='g') document.getElementById('showGrid').click();
+};
+
+// Init with one empty sprite
+addSprite();
+sprites[0].name='player_ow'; sprites[0].assoc='player_ow';
+syncUI(); draw();
+updateRecentColors();
+</script>
+</body>
+</html>
