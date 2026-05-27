@@ -593,55 +593,52 @@ int hal_init(void) {
                 s_sprite_patterns[3][py * SPRITE_W + px] = c;
             }
         }
-        /* Pattern 10: Merchant — gold/brown figure with bag */
+        /* Pattern 10: Merchant TOP — gold/brown head + upper torso with bag */
         for (py = 0; py < SPRITE_H; py++) {
             for (px = 0; px < SPRITE_W; px++) {
                 uint8_t c = 0;
-                if (py >= 2 && py <= 5 && px >= 5 && px <= 10) c = 0xA8; /* brown head */
-                if (py == 3 && (px == 6 || px == 9)) c = 0xFF;
-                if (py >= 6 && py <= 12 && px >= 4 && px <= 11) c = 0xE8; /* gold body */
-                if (py >= 8 && py <= 11 && px >= 11 && px <= 14) c = 0x64; /* bag */
-                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xA4;
+                if (py >= 3 && py <= 6 && px >= 5 && px <= 10) c = 0xA8; /* brown head */
+                if (py == 5 && (px == 6 || px == 9)) c = 0xFF;          /* eyes */
+                if (py >= 1 && py <= 2 && px >= 5 && px <= 10) c = 0x64; /* hood */
+                if (py >= 7 && py <= 15 && px >= 4 && px <= 11) c = 0xE8; /* gold torso */
+                if (py >= 10 && py <= 14 && px >= 11 && px <= 14) c = 0x64; /* bag */
                 s_sprite_patterns[10][py * SPRITE_W + px] = c;
             }
         }
-        /* Pattern 11: Healer — white/green figure with cross */
+        /* Pattern 11: Healer TOP — white/green head + upper robe with cross */
         for (py = 0; py < SPRITE_H; py++) {
             for (px = 0; px < SPRITE_W; px++) {
                 uint8_t c = 0;
-                if (py >= 2 && py <= 5 && px >= 5 && px <= 10) c = 0xB6; /* light head */
-                if (py == 3 && (px == 6 || px == 9)) c = 0x0C;
-                if (py >= 6 && py <= 12 && px >= 4 && px <= 11) c = 0xFF; /* white robe */
-                if (py >= 7 && py <= 9 && px == 7) c = 0x10; /* cross vert */
-                if (py == 8 && px >= 6 && px <= 8) c = 0x10; /* cross horiz */
-                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xB6;
+                if (py >= 3 && py <= 6 && px >= 5 && px <= 10) c = 0xB6; /* light head */
+                if (py == 5 && (px == 6 || px == 9)) c = 0x0C;
+                if (py >= 7 && py <= 15 && px >= 4 && px <= 11) c = 0xFF; /* white robe */
+                if (py >= 10 && py <= 12 && px == 7) c = 0x10; /* cross vert */
+                if (py == 11 && px >= 6 && px <= 8) c = 0x10; /* cross horiz */
                 s_sprite_patterns[11][py * SPRITE_W + px] = c;
             }
         }
-        /* Pattern 12: Sage — purple/dark figure with pointed hat */
+        /* Pattern 12: Sage TOP — purple/dark head with pointed hat */
         for (py = 0; py < SPRITE_H; py++) {
             for (px = 0; px < SPRITE_W; px++) {
                 uint8_t c = 0;
-                if (py == 0 && px >= 7 && px <= 8) c = 0x5F; /* hat tip */
-                if (py == 1 && px >= 6 && px <= 9) c = 0x5F;
-                if (py >= 2 && py <= 3 && px >= 5 && px <= 10) c = 0x5F; /* hat brim */
-                if (py >= 4 && py <= 6 && px >= 5 && px <= 10) c = 0x9F; /* face */
-                if (py == 5 && (px == 6 || px == 9)) c = 0xFF;
-                if (py >= 7 && py <= 12 && px >= 4 && px <= 11) c = 0x5F; /* purple robe */
-                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x53;
+                if (py == 1 && px >= 7 && px <= 8) c = 0x5F; /* hat tip */
+                if (py == 2 && px >= 6 && px <= 9) c = 0x5F;
+                if (py >= 3 && py <= 4 && px >= 5 && px <= 10) c = 0x5F; /* hat brim */
+                if (py >= 5 && py <= 7 && px >= 5 && px <= 10) c = 0x9F; /* face */
+                if (py == 6 && (px == 6 || px == 9)) c = 0xFF;
+                if (py >= 8 && py <= 15 && px >= 4 && px <= 11) c = 0x5F; /* purple robe */
                 s_sprite_patterns[12][py * SPRITE_W + px] = c;
             }
         }
-        /* Pattern 13: Wanderer — brown/green travel cloak */
+        /* Pattern 13: Wanderer TOP — brown/green hood + upper cloak */
         for (py = 0; py < SPRITE_H; py++) {
             for (px = 0; px < SPRITE_W; px++) {
                 uint8_t c = 0;
-                if (py >= 1 && py <= 2 && px >= 6 && px <= 9) c = 0x64; /* hood */
-                if (py >= 3 && py <= 5 && px >= 5 && px <= 10) c = 0xAD; /* face */
-                if (py == 4 && (px == 6 || px == 9)) c = 0xFF;
-                if (py >= 6 && py <= 13 && px >= 3 && px <= 12) c = 0x0C; /* green cloak */
-                if (py >= 6 && py <= 13 && px >= 5 && px <= 10) c = 0x64; /* inner brown */
-                if (py >= 14 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x64;
+                if (py >= 2 && py <= 3 && px >= 6 && px <= 9) c = 0x64; /* hood top */
+                if (py >= 4 && py <= 6 && px >= 5 && px <= 10) c = 0xAD; /* face */
+                if (py == 5 && (px == 6 || px == 9)) c = 0xFF;
+                if (py >= 7 && py <= 15 && px >= 3 && px <= 12) c = 0x0C; /* green cloak */
+                if (py >= 9 && py <= 15 && px >= 5 && px <= 10) c = 0x64; /* inner brown */
                 s_sprite_patterns[13][py * SPRITE_W + px] = c;
             }
         }
@@ -673,6 +670,47 @@ int hal_init(void) {
                 if (py >= 4 && py <= 8 && px == 14) c = 0x17;
                 if (py >= 4 && py <= 8 && px == 15) c = 0x1F;
                 s_sprite_patterns[14][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 15: Merchant LEGS — brown lower robe + boots */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py <= 8 && px >= 4 && px <= 11) c = 0xE8;       /* lower body gold */
+                if (py >= 9 && py <= 12 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xA4; /* brown pants */
+                if (py >= 13 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x64; /* boots */
+                s_sprite_patterns[15][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 16: Healer LEGS — white robe + shoes */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py <= 11 && px >= 4 && px <= 11) c = 0xFF;      /* white robe extends */
+                if (py >= 12 && py <= 14 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0xB6;
+                if (py == 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x64; /* shoes */
+                s_sprite_patterns[16][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 17: Sage LEGS — purple robe + dark shoes */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py <= 11 && px >= 4 && px <= 11) c = 0x5F;      /* purple robe */
+                if (py >= 12 && py <= 14 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x53;
+                if (py == 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x40; /* dark shoes */
+                s_sprite_patterns[17][py * SPRITE_W + px] = c;
+            }
+        }
+        /* Pattern 18: Wanderer LEGS — green cloak hem + boots */
+        for (py = 0; py < SPRITE_H; py++) {
+            for (px = 0; px < SPRITE_W; px++) {
+                uint8_t c = 0;
+                if (py <= 7 && px >= 3 && px <= 12) c = 0x0C;       /* green cloak */
+                if (py <= 7 && px >= 5 && px <= 10) c = 0x64;       /* inner brown */
+                if (py >= 8 && py <= 13 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x64; /* brown pants */
+                if (py >= 14 && py <= 15 && ((px >= 4 && px <= 6)||(px >= 9 && px <= 11))) c = 0x40; /* boots */
+                s_sprite_patterns[18][py * SPRITE_W + px] = c;
             }
         }
     }
