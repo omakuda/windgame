@@ -220,6 +220,26 @@ static uint16_t s_building_map_w; /* saved outer map width */
 static uint16_t s_building_map_h;
 static const uint8_t *s_building_outer_map; /* pointer to outer map */
 static int16_t s_building_cam_x;  /* saved camera x */
+/* Remember which door the player entered through for return-to-same-door */
+static int16_t s_building_return_x;
+static int16_t s_building_return_y;
+
+/* Exit Tile Crossing State: exit tiles now require walking THROUGH them.
+ * s_exit_entry_side: 0=none, 1=from-left, 2=from-right, 3=from-top, 4=from-bottom */
+static uint16_t s_exit_track_tx, s_exit_track_ty;
+static uint8_t  s_exit_entry_side;
+
+/* Door destination types (subset of TILE_TRANSITION on safe maps) */
+#define DOOR_DEST_INTERIOR  0   /* Local building interior (existing behavior) */
+#define DOOR_DEST_TOWN      1   /* Exit to a named town */
+#define DOOR_DEST_WORLD     2   /* Exit to the overworld */
+#define DOOR_DEST_ROOM      3   /* Other room in same dungeon */
+#define DOOR_DEST_TELEPORT  4   /* Teleport to a specified town (future) */
+typedef struct {
+    uint8_t tx, ty;
+    uint8_t dest_type;
+    uint8_t dest_id;
+} door_link_t;
 
 #define ACTION_NPC_SPRITE_BASE 2  /* slots 0,1 = action player (top,bottom) */
 #define ACTION_NPC_MAX 8
@@ -601,6 +621,7 @@ static void ow_restore_tiles(void) {
 static void action_init(void){
     hal_sprite_hide_all();s_action_npc_count=0;
     arrows_clear();placed_ladder_clear();s_in_building=0;
+    s_exit_entry_side=0; /* clear exit tracking */
     action_clear_ow_tiles();
     if(s_map_event_type==MAP_EVENT_DUNGEON_FIXED){dungeon_init_fixed();}
     else if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM){dungeon_init_random();}
@@ -897,40 +918,94 @@ av:
         else if(s_map_event_type!=MAP_EVENT_FIELD)load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
         else{s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;}return;}
 
-    /* EXIT tiles -- field maps or dungeon entry room → back to overworld (1px wider probe) */
-    if(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_EXIT)){
-        if(s_map_event_type==MAP_EVENT_FIELD
-         ||(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry)){
-            s_scene=SCENE_OVERWORLD;return;}}
+    /* ============================================================
+     * EXIT TILES (TILE_EXIT, id 8) - edge-crossing semantics
+     *
+     * Player must walk THROUGH the tile (enter one side, exit opposite)
+     * to trigger. Brushing the edge doesn't count.
+     * ============================================================ */
+    {
+        int16_t cx_px = s_player.x + PLAYER_HB_X_OFFSET + PLAYER_HB_W/2;
+        int16_t cy_px = s_player.y + ahb_yo + ahb_h/2;
+        uint16_t cur_tx = (uint16_t)(cx_px / TILE_SIZE);
+        uint16_t cur_ty = (uint16_t)(cy_px / TILE_SIZE);
+        uint8_t  cur_tile = hal_tilemap_get(cur_tx, cur_ty);
+        uint8_t  cur_flags = tile_flags(cur_tile);
 
-    /* TRANSITION tiles -- dungeon rooms (probe 1px wider to detect wall-embedded tiles) */
+        if (cur_flags & TILE_EXIT) {
+            int16_t tile_left   = (int16_t)(cur_tx * TILE_SIZE);
+            int16_t tile_right  = tile_left + TILE_SIZE;
+            int16_t tile_top    = (int16_t)(cur_ty * TILE_SIZE);
+            int16_t tile_bottom = tile_top + TILE_SIZE;
+
+            if (s_exit_entry_side == 0
+                || s_exit_track_tx != cur_tx || s_exit_track_ty != cur_ty) {
+                s_exit_track_tx = cur_tx;
+                s_exit_track_ty = cur_ty;
+                if (s_player.vel_x > 0)      s_exit_entry_side = 1;
+                else if (s_player.vel_x < 0) s_exit_entry_side = 2;
+                else if (s_player.vel_y > 0) s_exit_entry_side = 3;
+                else if (s_player.vel_y < 0) s_exit_entry_side = 4;
+                else {
+                    int16_t dl = cx_px - tile_left;
+                    int16_t dr = tile_right - cx_px;
+                    s_exit_entry_side = (dl < dr) ? 1 : 2;
+                }
+            } else {
+                uint8_t triggered = 0;
+                if (s_exit_entry_side == 1 && cx_px >= tile_right - 2) triggered = 1;
+                else if (s_exit_entry_side == 2 && cx_px <= tile_left + 2) triggered = 1;
+                else if (s_exit_entry_side == 3 && cy_px >= tile_bottom - 2) triggered = 1;
+                else if (s_exit_entry_side == 4 && cy_px <= tile_top + 2) triggered = 1;
+
+                if (triggered) {
+                    s_exit_entry_side = 0;
+                    if (s_map_event_type == MAP_EVENT_FIELD
+                        || (s_map_event_type == MAP_EVENT_DUNGEON_RANDOM && s_dungeon.in_entry)) {
+                        s_scene = SCENE_OVERWORLD;
+                        return;
+                    }
+                }
+            }
+        } else {
+            s_exit_entry_side = 0;
+        }
+    }
+
+    /* TRANSITION tiles -- dungeon rooms (auto-touch) */
     if((s_map_event_type==MAP_EVENT_DUNGEON_FIXED||s_map_event_type==MAP_EVENT_DUNGEON_RANDOM)
        &&(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_TRANSITION))){
         if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry){
-            /* Entry room ladder → descend into first random room */
             s_dungeon.in_entry=0;s_dungeon.current_idx=0;
             load_dungeon_room(s_dungeon.room_order[0],1);
         }else{
             dungeon_handle_transition(s_player.x+SPRITE_W/2);
         }return;}
 
-    /* DOOR ENTER — safe/town maps: press UP on a transition tile (9) to enter building */
+    /* DOOR ENTER — safe/town maps: press UP on a transition tile (9) to enter building.
+     * Future: door_link_t lookup to determine destination (interior/town/world/teleport).
+     * Default for now: DOOR_DEST_INTERIOR (existing behavior). */
     if(s_action_reason==ACTION_REASON_SAFE&&!s_in_building
        &&(pressed&INPUT_UP)
        &&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_TRANSITION)){
-        /* Save outer map state */
+        /* Identify the exact door tile and remember it for return */
+        int16_t fcx = s_player.x + PLAYER_HB_X_OFFSET + PLAYER_HB_W/2;
+        int16_t fcy = s_player.y + ahb_yo + ahb_h/2;
+        uint16_t door_tx = (uint16_t)(fcx / TILE_SIZE);
+        uint16_t door_ty = (uint16_t)(fcy / TILE_SIZE);
         s_building_px=s_player.x;s_building_py=s_player.y;
+        s_building_return_x = (int16_t)(door_tx * TILE_SIZE);
+        s_building_return_y = (int16_t)(door_ty * TILE_SIZE);
         s_building_map_w=s_act_map_w;s_building_map_h=s_act_map_h;
         s_building_cam_x=s_camera_x;
         s_in_building=1;
-        /* Load interior */
         hal_tilemap_set(interior_room,INTERIOR_W,INTERIOR_H);
         s_act_map_w=INTERIOR_W;s_act_map_h=INTERIOR_H;
-        /* Spawn near right side, on the ground */
         s_player.x=3*TILE_SIZE;
         s_player.y=(int16_t)((INTERIOR_H-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
         s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;
         s_camera_x=0;hal_tilemap_scroll(0,0);
+        s_exit_entry_side=0;
         return;
     }
 
@@ -943,9 +1018,12 @@ av:
         case SAFE_CARAVAN:hal_tilemap_set(safe_map_caravan,SAFE_CARAVAN_W,SAFE_CARAVAN_H);break;
         default:hal_tilemap_set(safe_map_lone,SAFE_LONE_W,SAFE_LONE_H);break;}
         s_act_map_w=s_building_map_w;s_act_map_h=s_building_map_h;
-        s_player.x=s_building_px;s_player.y=s_building_py;
+        /* Return to same door tile player entered through */
+        s_player.x=s_building_return_x;
+        s_player.y=(int16_t)((s_building_return_y/TILE_SIZE+1)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
         s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;
         s_camera_x=s_building_cam_x;hal_tilemap_scroll(s_camera_x,0);
+        s_exit_entry_side=0;
         return;
     }
 
