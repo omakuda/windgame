@@ -272,6 +272,41 @@ static int16_t s_building_px, s_building_py;
 static uint16_t s_building_map_w, s_building_map_h;
 static const uint8_t *s_building_outer_map;
 static int16_t s_building_cam_x;
+/* Remember which door the player entered through for return-to-same-door */
+static int16_t s_building_return_x;
+static int16_t s_building_return_y;
+
+/*--- Exit Tile Crossing State ---
+ * Exit tiles (TILE_EXIT) now require the player to walk THROUGH the tile:
+ * enter from one edge and reach the opposite edge. This prevents accidental
+ * activation when the player just brushes against an exit.
+ *
+ * s_exit_track_tx,ty = the exit tile column the player is currently inside.
+ * s_exit_entry_side = which side they entered from:
+ *     0 = no exit active
+ *     1 = entered from LEFT (must exit RIGHT to trigger)
+ *     2 = entered from RIGHT (must exit LEFT to trigger)
+ *     3 = entered from TOP (must exit BOTTOM)
+ *     4 = entered from BOTTOM (must exit TOP)
+ */
+static uint16_t s_exit_track_tx, s_exit_track_ty;
+static uint8_t  s_exit_entry_side;
+
+/*--- Door Destination Types ---
+ * Doors are a subset of TILE_TRANSITION that activate on UP press.
+ * The current map's door array determines what each door does.
+ */
+#define DOOR_DEST_INTERIOR  0   /* Local building interior (existing behavior) */
+#define DOOR_DEST_TOWN      1   /* Exit to a named town (returns via same door) */
+#define DOOR_DEST_WORLD     2   /* Exit to the overworld */
+#define DOOR_DEST_ROOM      3   /* Other room in same dungeon */
+#define DOOR_DEST_TELEPORT  4   /* Teleport to a specified town (future) */
+
+typedef struct {
+    uint8_t tx, ty;        /* Tile coords of the door */
+    uint8_t dest_type;     /* DOOR_DEST_* */
+    uint8_t dest_id;       /* Town id / room id / world map id, depending on type */
+} door_link_t;
 
 /*--- Location Re-entry Prevention ---*/
 static uint16_t s_immune_tx, s_immune_ty;
@@ -677,6 +712,7 @@ static void dungeon_handle_transition(int16_t pcx){
 static void action_init(void){
     hal_sprite_hide_all();s_action_npc_count=0;
     arrows_clear();placed_ladder_clear();s_in_building=0;
+    s_exit_entry_side=0; /* clear exit tracking */
     action_clear_ow_tiles();
     if(s_map_event_type==MAP_EVENT_DUNGEON_FIXED){dungeon_init_fixed();}
     else if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM){dungeon_init_random();}
@@ -952,13 +988,71 @@ av:
         else if(s_map_event_type!=MAP_EVENT_FIELD)load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
         else{s_player.x=3*TILE_SIZE;s_player.y=(int16_t)((s_act_map_h-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;}return;}
 
-    /* EXIT tiles -- field maps or dungeon entry room → back to overworld (1px wider probe) */
-    if(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_EXIT)){
-        if(s_map_event_type==MAP_EVENT_FIELD
-         ||(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry)){
-            s_scene=SCENE_OVERWORLD;return;}}
+    /* ============================================================
+     * EXIT TILES (TILE_EXIT, id 8) - edge-crossing semantics
+     *
+     * Player must walk THROUGH the tile (enter one side, exit opposite)
+     * to trigger. Brushing the edge doesn't count.
+     * ============================================================ */
+    {
+        /* Find which exit tile (if any) the player's hitbox center is over */
+        int16_t cx_px = s_player.x + PLAYER_HB_X_OFFSET + PLAYER_HB_W/2;
+        int16_t cy_px = s_player.y + ahb_yo + ahb_h/2;
+        uint16_t cur_tx = (uint16_t)(cx_px / TILE_SIZE);
+        uint16_t cur_ty = (uint16_t)(cy_px / TILE_SIZE);
+        uint8_t  cur_tile = hal_tilemap_get(cur_tx, cur_ty);
+        uint8_t  cur_flags = tile_flags(cur_tile);
 
-    /* TRANSITION tiles -- dungeon rooms (probe 1px wider to detect wall-embedded tiles) */
+        if (cur_flags & TILE_EXIT) {
+            int16_t tile_left   = (int16_t)(cur_tx * TILE_SIZE);
+            int16_t tile_right  = tile_left + TILE_SIZE;
+            int16_t tile_top    = (int16_t)(cur_ty * TILE_SIZE);
+            int16_t tile_bottom = tile_top + TILE_SIZE;
+
+            if (s_exit_entry_side == 0
+                || s_exit_track_tx != cur_tx || s_exit_track_ty != cur_ty) {
+                /* New exit tile entered — record entry side from motion direction */
+                s_exit_track_tx = cur_tx;
+                s_exit_track_ty = cur_ty;
+                /* Determine which side they entered from based on velocity */
+                if (s_player.vel_x > 0)      s_exit_entry_side = 1; /* from left */
+                else if (s_player.vel_x < 0) s_exit_entry_side = 2; /* from right */
+                else if (s_player.vel_y > 0) s_exit_entry_side = 3; /* from top */
+                else if (s_player.vel_y < 0) s_exit_entry_side = 4; /* from bottom */
+                else {
+                    /* Stationary — pick side based on nearest edge */
+                    int16_t dl = cx_px - tile_left;
+                    int16_t dr = tile_right - cx_px;
+                    s_exit_entry_side = (dl < dr) ? 1 : 2;
+                }
+            } else {
+                /* Same exit tile — check if player has reached the opposite edge */
+                uint8_t triggered = 0;
+                if (s_exit_entry_side == 1 && cx_px >= tile_right - 2) triggered = 1;       /* L->R */
+                else if (s_exit_entry_side == 2 && cx_px <= tile_left + 2) triggered = 1;   /* R->L */
+                else if (s_exit_entry_side == 3 && cy_px >= tile_bottom - 2) triggered = 1; /* T->B */
+                else if (s_exit_entry_side == 4 && cy_px <= tile_top + 2) triggered = 1;    /* B->T */
+
+                if (triggered) {
+                    s_exit_entry_side = 0;
+                    if (s_map_event_type == MAP_EVENT_FIELD
+                        || (s_map_event_type == MAP_EVENT_DUNGEON_RANDOM && s_dungeon.in_entry)) {
+                        s_scene = SCENE_OVERWORLD;
+                        return;
+                    }
+                }
+            }
+        } else {
+            /* No longer on an exit tile — clear tracking */
+            s_exit_entry_side = 0;
+        }
+    }
+
+    /* ============================================================
+     * TRANSITION TILES (TILE_TRANSITION, id 9) - dungeon room links
+     * In dungeon scenes these are auto-activated on touch (room boundaries).
+     * In safe/town maps they're doors that need UP press (handled below).
+     * ============================================================ */
     if((s_map_event_type==MAP_EVENT_DUNGEON_FIXED||s_map_event_type==MAP_EVENT_DUNGEON_RANDOM)
        &&(box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_TRANSITION))){
         if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM&&s_dungeon.in_entry){
@@ -969,16 +1063,38 @@ av:
             dungeon_handle_transition(s_player.x+SPRITE_W/2);
         }return;}
 
-    /* DOOR ENTER — safe/town maps: press UP on a transition tile (9) to enter building */
+    /* ============================================================
+     * DOORS (TILE_TRANSITION on safe/town maps) - UP press to enter
+     *
+     * Doors are activated by pressing UP when standing on a transition tile.
+     * Destination determined by door_link_t lookup (future):
+     *   - DOOR_DEST_INTERIOR: enter local interior_room (default for now)
+     *   - DOOR_DEST_TOWN:     go to a named town map
+     *   - DOOR_DEST_WORLD:    exit to the overworld
+     *   - DOOR_DEST_ROOM:     other dungeon room (handled above)
+     *   - DOOR_DEST_TELEPORT: teleport to another town's specific door
+     *
+     * For now, all safe-map doors default to DOOR_DEST_INTERIOR.
+     * When exiting the interior, the player is returned to the SAME door
+     * they entered through (saved in s_building_return_x/y).
+     * ============================================================ */
     if(s_action_reason==ACTION_REASON_SAFE&&!s_in_building
        &&(pressed&INPUT_UP)
        &&box_hits_flag(hb_x,hb_y,PLAYER_HB_W,ahb_h,TILE_TRANSITION)){
-        /* Save outer map state */
+        /* Find the specific door tile under the player */
+        int16_t fcx = s_player.x + PLAYER_HB_X_OFFSET + PLAYER_HB_W/2;
+        int16_t fcy = s_player.y + ahb_yo + ahb_h/2;
+        uint16_t door_tx = (uint16_t)(fcx / TILE_SIZE);
+        uint16_t door_ty = (uint16_t)(fcy / TILE_SIZE);
+
+        /* Save outer map state for return */
         s_building_px=s_player.x;s_building_py=s_player.y;
+        s_building_return_x = (int16_t)(door_tx * TILE_SIZE);
+        s_building_return_y = (int16_t)(door_ty * TILE_SIZE);
         s_building_map_w=s_act_map_w;s_building_map_h=s_act_map_h;
         s_building_cam_x=s_camera_x;
         s_in_building=1;
-        /* Load interior */
+        /* Load interior (default DOOR_DEST_INTERIOR behavior) */
         hal_tilemap_set(interior_room,INTERIOR_W,INTERIOR_H);
         s_act_map_w=INTERIOR_W;s_act_map_h=INTERIOR_H;
         /* Spawn near right side, on the ground */
@@ -986,10 +1102,14 @@ av:
         s_player.y=(int16_t)((INTERIOR_H-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
         s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;
         s_camera_x=0;hal_tilemap_scroll(0,0);
+        s_exit_entry_side=0;
         return;
     }
 
-    /* DOOR EXIT — inside building: walk left into exit tile (8) → return to outer map */
+    /* INTERIOR EXIT — inside building: walk through exit tile (edge-crossing
+     * already handled above). The exit triggered above will return us
+     * to the overworld for non-building scenes, but for buildings we
+     * need to return to the saved outer map at the original door. */
     if(s_in_building&&box_hits_flag(hb_x-1,hb_y,PLAYER_HB_W+2,ahb_h,TILE_EXIT)){
         s_in_building=0;
         /* Restore outer map */
@@ -998,9 +1118,12 @@ av:
         case SAFE_CARAVAN:hal_tilemap_set(safe_map_caravan,SAFE_CARAVAN_W,SAFE_CARAVAN_H);break;
         default:hal_tilemap_set(safe_map_lone,SAFE_LONE_W,SAFE_LONE_H);break;}
         s_act_map_w=s_building_map_w;s_act_map_h=s_building_map_h;
-        s_player.x=s_building_px;s_player.y=s_building_py;
+        /* Return to same door (s_building_return_x/y) rather than original pixel position */
+        s_player.x=s_building_return_x;
+        s_player.y=(int16_t)((s_building_return_y/TILE_SIZE+1)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
         s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;
         s_camera_x=s_building_cam_x;hal_tilemap_scroll(s_camera_x,0);
+        s_exit_entry_side=0;
         return;
     }
 
