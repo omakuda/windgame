@@ -585,14 +585,31 @@ static uint8_t npc_pattern_for_friendly(friendly_type_t ft){
     case FRIENDLY_SAGE:return PATTERN_NPC_SAGE;case FRIENDLY_WANDERER:return PATTERN_NPC_WANDERER;default:return PATTERN_FRIENDLY;}
 }
 
+/* NPC top->legs pattern mapping. Each NPC uses 2 sprite slots (2x1 tall). */
+static uint8_t npc_legs_pattern(uint8_t top_pat) {
+    switch(top_pat){
+        case PATTERN_NPC_MERCHANT: return 15;
+        case PATTERN_NPC_HEALER:   return 16;
+        case PATTERN_NPC_SAGE:     return 17;
+        case PATTERN_NPC_WANDERER: return 18;
+        default: return 15;
+    }
+}
+
 static void place_action_npcs(const int16_t *xs,const int16_t *ys,uint8_t count){
     uint8_t i;s_action_npc_count=count;
     for(i=0;i<count&&i<ACTION_NPC_MAX;i++){
         s_action_npc_wx[i]=xs[i];s_action_npc_wy[i]=ys[i];
         /* Assign unique pattern per NPC type based on index */
         s_action_npc_pat[i]=npc_pattern_for_friendly((friendly_type_t)(i%FRIENDLY_TYPE_COUNT));
-        {sprite_desc_t npc;npc.id=ACTION_NPC_SPRITE_BASE+i;npc.x=xs[i];npc.y=ys[i];
-        npc.pattern=s_action_npc_pat[i];npc.palette=0;npc.flags=SPRITE_FLAG_VISIBLE;hal_sprite_set(&npc);}}}
+        /* Top sprite: head + torso */
+        {sprite_desc_t npc;npc.id=ACTION_NPC_SPRITE_BASE+i*2;npc.x=xs[i];npc.y=ys[i];
+         npc.pattern=s_action_npc_pat[i];npc.palette=0;npc.flags=SPRITE_FLAG_VISIBLE;hal_sprite_set(&npc);}
+        /* Bottom sprite: legs at y+16 */
+        {sprite_desc_t npc;npc.id=ACTION_NPC_SPRITE_BASE+i*2+1;npc.x=xs[i];npc.y=ys[i]+SPRITE_H;
+         npc.pattern=npc_legs_pattern(s_action_npc_pat[i]);npc.palette=0;npc.flags=SPRITE_FLAG_VISIBLE;hal_sprite_set(&npc);}
+    }
+}
 
 static void load_dungeon_room(uint8_t pool_idx,uint8_t from_fwd){
     const dungeon_room_def_t *room=&room_pool[pool_idx];
@@ -993,13 +1010,22 @@ av:
     if(s_camera_x>(int16_t)(s_act_map_w*TILE_SIZE)-SCREEN_W)s_camera_x=(int16_t)(s_act_map_w*TILE_SIZE)-SCREEN_W;
     hal_tilemap_scroll(s_camera_x,0);
 
-    /* Update NPC sprite positions relative to camera (they stay in world space) */
+    /* Update NPC sprite positions relative to camera (they stay in world space).
+     * Each NPC uses 2 sprite slots: top half + legs (at y+SPRITE_H). */
     {uint8_t ni;
      for(ni=0;ni<s_action_npc_count&&ni<ACTION_NPC_MAX;ni++){
-         sprite_desc_t ns;ns.id=ACTION_NPC_SPRITE_BASE+ni;
-         ns.x=s_action_npc_wx[ni]-s_camera_x;ns.y=s_action_npc_wy[ni];
-         ns.pattern=s_action_npc_pat[ni];ns.palette=0;ns.flags=SPRITE_FLAG_VISIBLE;
-         hal_sprite_set(&ns);}}
+         /* Top */
+         {sprite_desc_t ns;ns.id=ACTION_NPC_SPRITE_BASE+ni*2;
+          ns.x=s_action_npc_wx[ni]-s_camera_x;ns.y=s_action_npc_wy[ni];
+          ns.pattern=s_action_npc_pat[ni];ns.palette=0;ns.flags=SPRITE_FLAG_VISIBLE;
+          hal_sprite_set(&ns);}
+         /* Legs */
+         {sprite_desc_t ns;ns.id=ACTION_NPC_SPRITE_BASE+ni*2+1;
+          ns.x=s_action_npc_wx[ni]-s_camera_x;ns.y=s_action_npc_wy[ni]+SPRITE_H;
+          ns.pattern=npc_legs_pattern(s_action_npc_pat[ni]);ns.palette=0;ns.flags=SPRITE_FLAG_VISIBLE;
+          hal_sprite_set(&ns);}
+     }
+    }
 
     /* Equipment use (BTN4/5/6) */
     {uint8_t sl; for(sl=0;sl<EQUIP_SLOTS;sl++) use_equip(sl,pressed,input);}
