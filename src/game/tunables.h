@@ -49,17 +49,17 @@ typedef struct {
  *----------------------------------------------------------------------*/
 
 static tunable_t T = {
-    /* fy_grav */       86,    /* Z2 normal gravity (72 * 60/50 = 86) */
-    /* fy_grav_held */  57,    /* Z2 held-A gravity (48 * 60/50 = 57) */
-    /* fy_jump */       -1230, /* Z2 jump impulse */
-    /* fy_max_fall */   1535,  /* Z2 terminal velocity */
+    /* fy_grav */       106,
+    /* fy_grav_held */  67,
+    /* fy_jump */       -1230,
+    /* fy_max_fall */   1535,
     /* fy_climb */      512,
     /* land_crouch */   1280,
     /* land_crouch_f */ 8,
-    /* fx_max_speed */  461,   /* Z2 max walk: 1.5 px/frame (24 in 4.4, scaled) */
-    /* fx_accel */      19,    /* Z2 ground accel: +1/frame in 4.4 (scaled) */
-    /* fx_air_accel */  19,    /* Z2: same as ground (full air control) */
-    /* fx_air_max */    461,   /* Z2: full ground speed available in air */
+    /* fx_max_speed */  683,
+    /* fx_accel */      52,
+    /* fx_air_accel */  18,
+    /* fx_air_max */    170,
     /* attack_dur */    ATTACK_DURATION_DEF,
     /* invuln_time */   INVULN_TIME_DEF,
     /* player_hp */     PLAYER_START_HP,
@@ -109,17 +109,17 @@ typedef struct {
 
 #define TVAR_COUNT 17
 static const tvar_t tvars[TVAR_COUNT] = {
-    {"fy_grav",         &T.fy_grav,           10,   86,    1,  500},
-    {"fy_grav_held",    &T.fy_grav_held,      5,    57,    1,  500},
+    {"fy_grav",         &T.fy_grav,           10,   106,   1,  500},
+    {"fy_grav_held",    &T.fy_grav_held,      5,    67,    1,  500},
     {"fy_jump",         &T.fy_jump,           50,  -1230, -3000, 0},
     {"fy_max_fall",     &T.fy_max_fall,       50,   1535,  256, 5000},
     {"fy_climb",        &T.fy_climb,          32,   512,   64, 2048},
     {"land_crouch_thr", &T.land_crouch_thresh, 64,  1280,  0,  5000},
     {"land_crouch_frm", &T.land_crouch_frames, 1,   8,    0,  60},
-    {"fx_max_speed",    &T.fx_max_speed,      20,   461,   64, 2048},
-    {"fx_accel",        &T.fx_accel,          2,    19,    1,  200},
-    {"fx_air_accel",    &T.fx_air_accel,      2,    19,    1,  200},
-    {"fx_air_max",      &T.fx_air_max,        20,   461,   0, 2048},
+    {"fx_max_speed",    &T.fx_max_speed,      50,   683,   64, 4096},
+    {"fx_accel",        &T.fx_accel,          5,    52,    1,  500},
+    {"fx_air_accel",    &T.fx_air_accel,      5,    18,    1,  500},
+    {"fx_air_max",      &T.fx_air_max,        10,   170,   0,  683},
     {"attack_dur",      &T.attack_duration,   1,    ATTACK_DURATION_DEF, 1, 120},
     {"invuln_time",     &T.invuln_time,       5,    INVULN_TIME_DEF, 0, 255},
     {"player_hp",       &T.player_hp,         1,    PLAYER_START_HP, 1, 99},
