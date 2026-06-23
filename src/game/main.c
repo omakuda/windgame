@@ -101,6 +101,7 @@ typedef struct {
 } dungeon_room_def_t;
 
 #include "game/maps.h"
+#include "game/enemies.h"
 
 /*--- Player hitbox ---
  * Action scenes: 16x32 sprite (two 16x16 slots stacked).
@@ -562,6 +563,13 @@ static item_id_t s_equip[EQUIP_SLOTS]; /* equip[0]=BTN4, equip[1]=BTN5, equip[2]
 /* Forward declarations for equipment system (defined below render) */
 static void arrows_clear(void);
 static void arrows_update(void);
+static void enemies_clear(void);
+static void enemies_update(void);
+static void enemies_draw(int16_t cam_x);
+static void eprojs_update(void);
+static void enemies_check_arrow(int16_t ax, int16_t ay);
+static void enemy_spawn(uint8_t def_id, int16_t x, int16_t y);
+static void enemy_spawn_slot(uint8_t slot, int16_t x, int16_t y);
 static void placed_ladder_clear(void);
 static void use_equip(uint8_t slot, uint16_t pressed, uint16_t input);
 static void inventory_init(void);
@@ -621,6 +629,7 @@ static void ow_restore_tiles(void) {
 static void action_init(void){
     hal_sprite_hide_all();s_action_npc_count=0;
     arrows_clear();placed_ladder_clear();s_in_building=0;
+    enemies_clear();
     s_exit_entry_side=0; /* clear exit tracking */
     action_clear_ow_tiles();
     if(s_map_event_type==MAP_EVENT_DUNGEON_FIXED){dungeon_init_fixed();}
@@ -653,7 +662,21 @@ static void action_init(void){
         /* Field spawn: place feet on the floor (floor = map_h-2 row) */
         s_player.x=3*TILE_SIZE;
         s_player.y=(int16_t)((s_act_map_h-2)*TILE_SIZE)-PLAYER_HB_Y_OFFSET-PLAYER_HB_H;
-        s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;s_player.crouching=0;}
+        s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;s_player.crouching=0;
+        /* Spawn enemies in slots on combat maps (slot->def via resolve, randomizable later). */
+        if(s_action_reason==ACTION_REASON_COMBAT){
+            int16_t fy=(int16_t)((s_act_map_h-2)*TILE_SIZE)-SPRITE_H;
+            if(s_last_encounter.enemy_type==EVENT_ENEMY_STRONG){
+                enemy_spawn_slot(ENEMY_SLOT_A,(int16_t)(10*TILE_SIZE),fy);
+                enemy_spawn_slot(ENEMY_SLOT_C,(int16_t)(16*TILE_SIZE),fy);
+                enemy_spawn_slot(ENEMY_SLOT_B,(int16_t)(13*TILE_SIZE),fy-2*TILE_SIZE);
+            }else if(s_last_encounter.enemy_type==EVENT_ENEMY_MEDIUM){
+                enemy_spawn_slot(ENEMY_SLOT_A,(int16_t)(9*TILE_SIZE),fy);
+                enemy_spawn_slot(ENEMY_SLOT_B,(int16_t)(14*TILE_SIZE),fy-3*TILE_SIZE);
+            }else{
+                enemy_spawn_slot(ENEMY_SLOT_A,(int16_t)(9*TILE_SIZE),fy);
+            }
+        }}
     s_player.dir=0;s_player.frame=0;s_player.invuln=0;s_player.vel_fx=0;s_player.vel_fy=0;s_camera_x=0;
 }
 
@@ -1055,6 +1078,9 @@ av:
 
     /* Update projectiles */
     arrows_update();
+    /* Update enemies and their projectiles */
+    enemies_update();
+    eprojs_update();
     /* No menu exit from action scenes */
 }
 
@@ -1089,6 +1115,11 @@ typedef struct {
 } arrow_t;
 static arrow_t s_arrows[MAX_ARROWS];
 
+/*--- Enemies & enemy projectiles ---*/
+static enemy_t s_enemies[MAX_ENEMIES];
+static eproj_t s_eprojs[MAX_EPROJ];
+#define ENEMY_SPRITE_BASE  18
+
 static void arrows_clear(void){
     uint8_t i; for(i=0;i<MAX_ARROWS;i++) s_arrows[i].active=0;
 }
@@ -1116,6 +1147,7 @@ static void arrows_update(void){
         if(s_arrows[i].timer==0){s_arrows[i].active=0;continue;}
         {int16_t ax=s_arrows[i].x+4, ay=s_arrows[i].y+4;
          uint16_t tx=(uint16_t)(ax/TILE_SIZE), ty=(uint16_t)(ay/TILE_SIZE);
+         enemies_check_arrow(ax,ay); /* pierce damage to enemies */
          if(tx<s_act_map_w&&ty<s_act_map_h){
              if(tile_flags(hal_tilemap_get(tx,ty))&TILE_SOLID){s_arrows[i].active=0;}}
          else s_arrows[i].active=0;}
@@ -1131,6 +1163,343 @@ static void arrows_draw(int16_t cam_x){
             hal_draw_rect(sx,sy,8,2,0xFC); /* yellow */}
     }
 }
+
+/*==========================================================================
+ * === ENEMY SYSTEM ===
+ * Data-driven: every enemy is an enemy_def_t (traits). Behaviors and
+ * attacks are dispatched from the def. Projectiles are independent objects
+ * so one attack move can fire different object kinds.
+ *==========================================================================*/
+
+
+static void enemies_clear(void){
+    uint8_t i;
+    for(i=0;i<MAX_ENEMIES;i++) s_enemies[i].active=0;
+    for(i=0;i<MAX_EPROJ;i++) s_eprojs[i].active=0;
+}
+
+/* Spawn one enemy from a definition id at a world position. */
+static void enemy_spawn(uint8_t def_id, int16_t x, int16_t y){
+    uint8_t i;
+    if(def_id>=ENEMY_DEF_COUNT) return;
+    for(i=0;i<MAX_ENEMIES;i++){
+        if(!s_enemies[i].active){
+            const enemy_def_t *d=&enemy_defs[def_id];
+            s_enemies[i].active=1;
+            s_enemies[i].def_id=def_id;
+            s_enemies[i].x=x; s_enemies[i].y=y;
+            s_enemies[i].vel_fx=0; s_enemies[i].vel_fy=0;
+            s_enemies[i].hp=d->hp;
+            s_enemies[i].on_ground=0; s_enemies[i].dir=1;
+            s_enemies[i].hurt_timer=0;
+            s_enemies[i].atk_timer=d->attack_cooldown;
+            s_enemies[i].state=0; s_enemies[i].anim=0;
+            return;
+        }
+    }
+}
+
+/* Spawn an enemy in a map SLOT (A/B/C). The slot resolves to a concrete
+ * enemy def via enemy_resolve_slot — which can be randomized later. */
+static void enemy_spawn_slot(uint8_t slot, int16_t x, int16_t y){
+    enemy_spawn(enemy_resolve_slot(slot), x, y);
+}
+
+/* Spawn an enemy projectile object. */
+static void eproj_spawn(uint8_t kind, int16_t x, int16_t y, int16_t dir){
+    uint8_t i;
+    const projectile_def_t *pd;
+    if(kind>=PROJ_TYPE_COUNT||kind==PROJ_NONE) return;
+    pd=&projectile_defs[kind];
+    for(i=0;i<MAX_EPROJ;i++){
+        if(!s_eprojs[i].active){
+            s_eprojs[i].active=1;
+            s_eprojs[i].kind=kind;
+            s_eprojs[i].x=x; s_eprojs[i].y=y;
+            s_eprojs[i].vel_fx=(int16_t)(dir<0?-pd->speed:pd->speed)*FX_ONE;
+            /* Arc projectiles get an initial upward lob */
+            s_eprojs[i].vel_fy=(pd->gravity>0)?(int16_t)(-3*FX_ONE):0;
+            s_eprojs[i].timer=pd->lifetime;
+            s_eprojs[i].bounces_left=pd->bounces;
+            return;
+        }
+    }
+}
+
+/* Apply a hit to an enemy with a given damage type, honoring vulnerabilities. */
+static void enemy_take_hit(uint8_t idx, uint8_t base_dmg, uint8_t dmg_type){
+    enemy_t *e=&s_enemies[idx];
+    const enemy_def_t *d=&enemy_defs[e->def_id];
+    uint8_t vuln;
+    int16_t dealt;
+    if(e->hurt_timer>0) return; /* still in iframes */
+    if(dmg_type>=DMG_TYPE_COUNT) dmg_type=DMG_SLASH;
+    vuln=d->vuln[dmg_type];
+    dealt=(int16_t)((base_dmg*vuln)/4);
+    if(vuln!=VULN_IMMUNE && dealt<1) dealt=1; /* min 1 unless immune */
+    e->hp-=dealt;
+    e->hurt_timer=12;
+    /* Knockback away from player */
+    e->vel_fx=(s_player.x < e->x)?(int16_t)(2*FX_ONE):(int16_t)(-2*FX_ONE);
+    if(e->hp<=0) e->active=0;
+}
+
+/* Damage the player from an enemy contact/projectile. */
+static void player_take_hit(uint8_t dmg){
+    if(s_player.invuln>0) return;
+    s_player.hp-=dmg; if(s_player.hp<0)s_player.hp=0;
+    s_player.invuln=INVULN_TIME;
+    /* small knockback up & away */
+    s_player.vel_fy=FY_JUMP/2;
+    s_player.vel_y=FX_TO_PX(s_player.vel_fy);
+}
+
+/* One enemy's behavior + movement + attack. */
+static void enemy_update_one(uint8_t idx){
+    enemy_t *e=&s_enemies[idx];
+    const enemy_def_t *d=&enemy_defs[e->def_id];
+    int16_t ex_c, px_c, dx;
+    uint8_t ew=d->tiles_w*SPRITE_W, eh=d->tiles_h*SPRITE_H;
+
+    if(e->hurt_timer>0) e->hurt_timer--;
+    if(e->atk_timer>0) e->atk_timer--;
+    e->anim++;
+
+    ex_c=e->x+ew/2; px_c=s_player.x+SPRITE_W/2;
+    dx=px_c-ex_c;
+    e->dir=(dx<0)?1:0; /* face player */
+
+    /* ---- BEHAVIOR: decide intent ---- */
+    switch(d->behavior){
+    case BHV_STATIONARY:
+        e->vel_fx=0;
+        break;
+    case BHV_CHASE:
+        /* slow constant movement toward player */
+        e->vel_fx=(dx<0)?(int16_t)(-d->move_speed*FX_ONE):(int16_t)(d->move_speed*FX_ONE);
+        break;
+    case BHV_PATROL:
+        /* walk forward; reverse handled on wall hit below */
+        if(e->vel_fx==0) e->vel_fx=(int16_t)(d->move_speed*FX_ONE);
+        break;
+    case BHV_JUMP_IN_PLACE:
+        e->vel_fx=0;
+        if(e->on_ground && (e->anim%70)==0) e->vel_fy=FY_JUMP*3/4;
+        break;
+    case BHV_SWORD_DUEL: {
+        /* approach to mid range, strike (counter) at close range, back off */
+        int16_t adx=dx<0?-dx:dx;
+        if(adx>40) e->vel_fx=(dx<0)?(int16_t)(-d->move_speed*FX_ONE):(int16_t)(d->move_speed*FX_ONE);
+        else if(adx<24) e->vel_fx=(dx<0)?(int16_t)(d->move_speed*FX_ONE):(int16_t)(-d->move_speed*FX_ONE); /* back off */
+        else e->vel_fx=0; /* in strike range, hold */
+        break; }
+    default: e->vel_fx=0; break;
+    }
+
+    /* ---- MOVEMENT: apply physics by movement type ---- */
+    switch(d->movement){
+    case MOVE_NONE:
+        e->vel_fx=0; e->vel_fy=0;
+        break;
+    case MOVE_WALK:
+    case MOVE_HOP:
+        /* gravity */
+        e->vel_fy+=FY_GRAV;
+        if(e->vel_fy>FY_MAX_FALL)e->vel_fy=FY_MAX_FALL;
+        if(d->movement==MOVE_HOP && e->on_ground && (e->anim%40)==0)
+            e->vel_fy=FY_JUMP/2; /* small hop */
+        break;
+    case MOVE_FLY_HORIZ:
+        e->vel_fy=0;
+        break;
+    case MOVE_FLY_SINE:
+        /* vertical follows a sine-ish bob using anim */
+        e->vel_fy=(int16_t)(((e->anim/8)&1)?FX_ONE:-FX_ONE);
+        break;
+    default: break;
+    }
+
+    /* ---- INTEGRATE X with wall collision ---- */
+    {int16_t nx=e->x+FX_TO_PX(e->vel_fx);
+     uint16_t cy=(uint16_t)((e->y+eh/2)/TILE_SIZE);
+     uint16_t cxl=(uint16_t)((nx)/TILE_SIZE);
+     uint16_t cxr=(uint16_t)((nx+ew-1)/TILE_SIZE);
+     uint8_t blocked=0;
+     if(tile_flags(hal_tilemap_get(cxl,cy))&TILE_SOLID)blocked=1;
+     if(tile_flags(hal_tilemap_get(cxr,cy))&TILE_SOLID)blocked=1;
+     if(nx<0||nx>(int16_t)(s_act_map_w*TILE_SIZE)-ew)blocked=1;
+     if(blocked){
+        if(d->behavior==BHV_PATROL) e->vel_fx=-e->vel_fx; /* turn around */
+        else e->vel_fx=0;
+     } else e->x=nx;
+    }
+
+    /* ---- INTEGRATE Y with floor collision ---- */
+    if(d->movement!=MOVE_NONE){
+        int16_t ny=e->y+FX_TO_PX(e->vel_fy);
+        uint16_t cx=(uint16_t)((e->x+ew/2)/TILE_SIZE);
+        e->on_ground=0;
+        if(e->vel_fy>0){
+            uint16_t fty=(uint16_t)((ny+eh-1)/TILE_SIZE);
+            if(tile_flags(hal_tilemap_get(cx,fty))&(TILE_SOLID|TILE_PLATFORM)){
+                e->y=(int16_t)(fty*TILE_SIZE)-eh; e->vel_fy=0; e->on_ground=1;
+            } else e->y=ny;
+        } else {
+            e->y=ny;
+        }
+        /* clamp to map vertical bounds */
+        if(e->y<0){e->y=0;e->vel_fy=0;}
+        if(e->y>(int16_t)(s_act_map_h*TILE_SIZE)-eh){
+            e->y=(int16_t)(s_act_map_h*TILE_SIZE)-eh;e->vel_fy=0;e->on_ground=1;}
+    }
+
+    /* ---- ATTACK: fire when in range & off cooldown ---- */
+    if(d->attack==ATK_PROJECTILE && e->atk_timer==0){
+        int16_t adx=dx<0?-dx:dx;
+        if(adx < SCREEN_W){ /* roughly on-screen */
+            eproj_spawn(d->proj_kind, e->x+ew/2, e->y+eh/2, e->dir?-1:1);
+            e->atk_timer=d->attack_cooldown;
+        }
+    }
+
+    /* ---- CONTACT DAMAGE to player ---- */
+    {int16_t phx=s_player.x+PLAYER_HB_X_OFFSET, phy=s_player.y+PLAYER_HB_Y_OFFSET;
+     if(phx < e->x+ew && phx+PLAYER_HB_W > e->x &&
+        phy < e->y+eh && phy+PLAYER_HB_H > e->y){
+        player_take_hit(d->contact_damage);
+     }}
+}
+
+/* Player sword attack vs enemies: while attacking, a hitbox in front of the
+ * player deals DMG_SLASH. (Arrows handle DMG_PIERCE separately below.) */
+static void enemies_check_player_attack(void){
+    uint8_t i;
+    int16_t ax, ay, aw=14, ah=20;
+    if(s_player.attacking==0) return;
+    ay=s_player.y+PLAYER_HB_Y_OFFSET;
+    ax=s_player.dir? s_player.x-aw : s_player.x+SPRITE_W;
+    for(i=0;i<MAX_ENEMIES;i++){
+        enemy_t *e=&s_enemies[i];
+        const enemy_def_t *d;
+        uint8_t ew,eh;
+        if(!e->active) continue;
+        d=&enemy_defs[e->def_id]; ew=d->tiles_w*SPRITE_W; eh=d->tiles_h*SPRITE_H;
+        if(ax < e->x+ew && ax+aw > e->x && ay < e->y+eh && ay+ah > e->y){
+            enemy_take_hit(i, 2, DMG_SLASH);
+        }
+    }
+}
+
+/* Arrows vs enemies (DMG_PIERCE). Called from arrows_update path. */
+static void enemies_check_arrow(int16_t ax, int16_t ay){
+    uint8_t i;
+    for(i=0;i<MAX_ENEMIES;i++){
+        enemy_t *e=&s_enemies[i];
+        const enemy_def_t *d;
+        uint8_t ew,eh;
+        if(!e->active) continue;
+        d=&enemy_defs[e->def_id]; ew=d->tiles_w*SPRITE_W; eh=d->tiles_h*SPRITE_H;
+        if(ax>=e->x && ax<e->x+ew && ay>=e->y && ay<e->y+eh){
+            enemy_take_hit(i, 1, DMG_PIERCE);
+        }
+    }
+}
+
+static void enemies_update(void){
+    uint8_t i;
+    for(i=0;i<MAX_ENEMIES;i++)
+        if(s_enemies[i].active) enemy_update_one(i);
+    enemies_check_player_attack();
+}
+
+/* Enemy projectile physics + player collision. */
+static void eprojs_update(void){
+    uint8_t i;
+    for(i=0;i<MAX_EPROJ;i++){
+        eproj_t *p=&s_eprojs[i];
+        const projectile_def_t *pd;
+        if(!p->active) continue;
+        pd=&projectile_defs[p->kind];
+        /* physics */
+        p->vel_fy+=pd->gravity;
+        p->x+=FX_TO_PX(p->vel_fx);
+        p->y+=FX_TO_PX(p->vel_fy);
+        if(p->timer>0)p->timer--;
+        if(p->timer==0){p->active=0;continue;}
+        /* tile collision */
+        {uint16_t tx=(uint16_t)((p->x+pd->w/2)/TILE_SIZE);
+         uint16_t ty=(uint16_t)((p->y+pd->h/2)/TILE_SIZE);
+         if(tx>=s_act_map_w||ty>=s_act_map_h){p->active=0;continue;}
+         if(tile_flags(hal_tilemap_get(tx,ty))&TILE_SOLID){
+            if(pd->gravity>0 && p->vel_fy>0){
+                /* landed on floor — bounce or die */
+                if(p->bounces_left==0){p->active=0;continue;}
+                if(p->bounces_left!=0xFF) p->bounces_left--;
+                p->y=(int16_t)(ty*TILE_SIZE)-pd->h;
+                p->vel_fy=-(p->vel_fy*3/4); /* dampened bounce */
+                if(p->vel_fy>-FX_ONE){ /* too weak — land */
+                    if(p->kind==PROJ_BALL_LAND){p->active=0;continue;}
+                    p->vel_fy=0;
+                }
+            } else {
+                /* horizontal wall hit */
+                if(p->kind!=PROJ_FIREBALL){p->active=0;continue;}
+            }
+         }
+        }
+        /* player collision */
+        {int16_t phx=s_player.x+PLAYER_HB_X_OFFSET, phy=s_player.y+PLAYER_HB_Y_OFFSET;
+         if(phx < p->x+pd->w && phx+PLAYER_HB_W > p->x &&
+            phy < p->y+pd->h && phy+PLAYER_HB_H > p->y){
+            player_take_hit(pd->damage);
+            if(p->kind!=PROJ_BALL_BOUNCE) p->active=0; /* bouncing ball persists */
+         }}
+    }
+}
+
+/* Draw enemies (sprite slots) and their projectiles (rects). */
+static void enemies_draw(int16_t cam_x){
+    uint8_t i, slot=ENEMY_SPRITE_BASE;
+    for(i=0;i<MAX_ENEMIES;i++){
+        enemy_t *e=&s_enemies[i];
+        const enemy_def_t *d;
+        if(!e->active) continue;
+        d=&enemy_defs[e->def_id];
+        /* Flash off every other frame during iframes */
+        if(e->hurt_timer>0 && (e->hurt_timer&1)) continue;
+        {sprite_desc_t es;
+         uint8_t tx,ty;
+         /* For multi-tile enemies, tile the base pattern across the body */
+         for(ty=0;ty<d->tiles_h;ty++){
+            for(tx=0;tx<d->tiles_w;tx++){
+                if(slot>=MAX_SPRITES) break;
+                es.id=slot++;
+                es.x=e->x-cam_x+tx*SPRITE_W;
+                es.y=e->y+ty*SPRITE_H;
+                es.pattern=d->pattern;
+                es.palette=d->palette;
+                es.flags=SPRITE_FLAG_VISIBLE|(e->dir?SPRITE_FLAG_MIRROR_X:0);
+                hal_sprite_set(&es);
+            }
+         }
+        }
+    }
+    /* Hide any leftover enemy sprite slots from a previous frame */
+    while(slot<ENEMY_SPRITE_BASE+MAX_ENEMIES && slot<MAX_SPRITES){
+        hal_sprite_show(slot,0); slot++;
+    }
+    /* Projectiles as colored rects */
+    for(i=0;i<MAX_EPROJ;i++){
+        eproj_t *p=&s_eprojs[i];
+        const projectile_def_t *pd;
+        if(!p->active) continue;
+        pd=&projectile_defs[p->kind];
+        {int16_t sx=p->x-cam_x, sy=p->y;
+         if(sx>=-8&&sx<SCREEN_W+8)
+            hal_draw_rect(sx,sy,pd->w,pd->h,pd->color);}
+    }
+}
+
 
 /*==========================================================================
  * PLACEABLE LADDER
@@ -1726,6 +2095,7 @@ static void render(void){
         hal_draw_text(2,12,"HP:",0xFF);hal_draw_number(28,12,(int32_t)s_player.hp,0xFF);
         if(s_player.attacking>0)hal_draw_text(SCREEN_W-90,14,"ATK!",0xFF);
         arrows_draw(s_camera_x);
+        enemies_draw(s_camera_x);
         equip_hud_draw();
     }
     /* Menu overlays continue in UI mode (already active from HUD) */
