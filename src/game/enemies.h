@@ -260,6 +260,9 @@ typedef struct {
     uint16_t atk_timer;      /* counts down to next attack          */
     uint8_t  state;          /* behavior-specific sub-state         */
     int16_t  anim;           /* generic animation / phase counter   */
+    /* Ledger linkage: which room+slot this enemy occupies (for stay-dead) */
+    uint8_t  room_idx;       /* index into the dungeon visit's rooms */
+    uint8_t  slot_idx;       /* which spawn slot in that room        */
 } enemy_t;
 
 #define MAX_ENEMIES 8
@@ -277,5 +280,52 @@ typedef struct {
 } eproj_t;
 
 #define MAX_EPROJ 6
+
+/*==========================================================================
+ * DUNGEON VISIT INSTANCE + KILL LEDGER
+ *
+ * Three nested freeze scopes (see design):
+ *   - RUN scope:   seed, palette-meaning shuffle, spawn-mode (elsewhere)
+ *   - VISIT scope: THIS struct. Frozen at dungeon entry: which rooms,
+ *                  and which enemy fills each slot in each room. Plus the
+ *                  kill ledger (stay-dead). Reset only on full exit / death.
+ *   - LIVE scope:  s_enemies[] / s_eprojs[], rebuilt each room load from
+ *                  this instance, filtered by the kill ledger.
+ *
+ * The kill ledger is keyed (room, slot): when an enemy dies its slot is
+ * marked dead. Dead slots don't respawn on room re-load. "Room cleared"
+ * is simply "every slot in this room is dead" — checked on each kill.
+ *==========================================================================*/
+
+#define DV_MAX_ROOMS  8    /* matches MAX_DUNGEON_ROOMS */
+#define DV_MAX_SLOTS  4    /* spawn slots per room (A/B/C/D)            */
+
+/* Treasure trigger types (when the prize becomes grabbable). */
+typedef enum {
+    TREASURE_NONE = 0,
+    TREASURE_OPEN,        /* immediately grabbable                     */
+    TREASURE_ON_CLEAR,    /* spawns when every slot in the room is dead */
+    TREASURE_ON_CONDITION /* switch/key (future)                       */
+} treasure_trigger_t;
+
+/* Per-room spawn assignment + liveness, frozen at dungeon entry. */
+typedef struct {
+    uint8_t  slot_def[DV_MAX_SLOTS];  /* enemy_def_id per slot (0xFF=empty) */
+    int16_t  slot_x[DV_MAX_SLOTS];    /* world spawn position per slot      */
+    int16_t  slot_y[DV_MAX_SLOTS];
+    uint8_t  slot_dead[DV_MAX_SLOTS]; /* KILL LEDGER: 1 = dead, no respawn  */
+    uint8_t  slot_count;              /* how many slots are actually used   */
+    uint8_t  treasure_trigger;        /* treasure_trigger_t for this room   */
+    uint8_t  treasure_spawned;        /* 1 = treasure object is present     */
+    uint8_t  treasure_taken;          /* 1 = already collected this visit   */
+} dv_room_t;
+
+/* The dungeon visit instance — extends the basic room-order tracking with
+ * frozen enemy assignments + the kill ledger. */
+typedef struct {
+    dv_room_t rooms[DV_MAX_ROOMS];
+    uint8_t   minted;     /* 1 = assignments have been frozen this visit */
+    uint32_t  visit_seed; /* per-visit seed (room layout + enemy rolls)  */
+} dungeon_visit_t;
 
 #endif /* ENEMIES_H */
