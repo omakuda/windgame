@@ -321,6 +321,9 @@ static uint8_t s_action_npc_pat[ACTION_NPC_MAX];
 
 /*--- Dungeon ---*/
 static dungeon_state_t s_dungeon;
+/* Dungeon visit instance: frozen enemy assignments + kill ledger.
+ * Visit scope — minted at entry, reset on full exit / game-over. */
+static dungeon_visit_t s_dvisit;
 
 /*--- Overworld ---*/
 static uint8_t s_ow_frame_toggle;
@@ -661,15 +664,124 @@ static void place_action_npcs(const int16_t *xs,const int16_t *ys,uint8_t count)
     }
 }
 
+/*==========================================================================
+ * DUNGEON VISIT INSTANCE — mint, kill ledger, treasure
+ *
+ * MINT (at dungeon entry): freeze which enemy fills each slot of each room.
+ *   - Set dungeons copy a fixed assignment.
+ *   - Random dungeons roll each slot, decided ONCE here.
+ * load_dungeon_room then only READS this frozen instance — it never
+ * decides enemies again.
+ *
+ * KILL LEDGER: slot_dead[] per room. Set when an enemy dies (same place
+ * active flips to 0, so it never drifts). Checked on room load (dead
+ * slots don't respawn) and on each kill (room-clear test for treasure).
+ *==========================================================================*/
+
+/* Floor Y for an enemy/treasure in a room of the given tile height. */
+static int16_t dv_floor_y(uint16_t room_h){
+    return (int16_t)((room_h-2)*TILE_SIZE)-SPRITE_H;
+}
+
+/* Mint the visit instance: assign enemies to every room's slots, freeze. */
+static void dvisit_mint(uint8_t randomize){
+    uint8_t r, s;
+    s_dvisit.minted=1;
+    s_dvisit.visit_seed=(uint32_t)s_rng_state; /* capture per-visit seed */
+    for(r=0;r<DV_MAX_ROOMS;r++){
+        dv_room_t *rm=&s_dvisit.rooms[r];
+        const dungeon_room_def_t *def;
+        int16_t fy;
+        rm->slot_count=0; rm->treasure_spawned=0; rm->treasure_taken=0;
+        rm->treasure_trigger=TREASURE_NONE;
+        for(s=0;s<DV_MAX_SLOTS;s++){rm->slot_def[s]=0xFF;rm->slot_dead[s]=0;}
+        if(r>=s_dungeon.num_rooms) continue;
+        def=&room_pool[s_dungeon.room_order[r]];
+        fy=dv_floor_y(def->h);
+        /* Assign 2-3 slots across the floor. Set dungeons use a fixed lineup;
+         * random dungeons roll the count. Slot->def via enemy_resolve_slot
+         * (which can become a true randomizer later). */
+        {uint8_t n=randomize?(uint8_t)rng_range16(2,4):3;
+         uint8_t i;
+         if(n>DV_MAX_SLOTS)n=DV_MAX_SLOTS;
+         for(i=0;i<n;i++){
+            uint8_t slot_letter=i%ENEMY_SLOT_COUNT;
+            rm->slot_def[i]=enemy_resolve_slot(slot_letter);
+            rm->slot_x[i]=(int16_t)((4+i*4)*TILE_SIZE);
+            rm->slot_y[i]=fy;
+            rm->slot_dead[i]=0;
+            rm->slot_count++;
+         }
+        }
+        /* Last room gets an on-clear treasure. */
+        if(r==s_dungeon.num_rooms-1) rm->treasure_trigger=TREASURE_ON_CLEAR;
+    }
+}
+
+/* Reset the visit (full exit / game-over): un-mint so next entry re-freezes. */
+static void dvisit_reset(void){ s_dvisit.minted=0; }
+
+/* Is every used slot in this room dead? (room-clear test) */
+static uint8_t dv_room_clear(uint8_t room_idx){
+    dv_room_t *rm; uint8_t s;
+    if(room_idx>=DV_MAX_ROOMS) return 1;
+    rm=&s_dvisit.rooms[room_idx];
+    for(s=0;s<rm->slot_count;s++)
+        if(rm->slot_def[s]!=0xFF && !rm->slot_dead[s]) return 0;
+    return 1;
+}
+
+/* Treasure object: position + grab animation timer + which room it's in. */
+static struct { uint8_t active; int16_t x,y; uint8_t grab_timer; uint8_t room; } s_treasure;
+
+/* Spawn the treasure object for a room (trigger condition already met). */
+static void dv_spawn_treasure(uint8_t room_idx){
+    dv_room_t *rm=&s_dvisit.rooms[room_idx];
+    if(rm->treasure_spawned||rm->treasure_taken) return;
+    rm->treasure_spawned=1;
+    {const dungeon_room_def_t *def=&room_pool[s_dungeon.room_order[room_idx]];
+     s_treasure.active=1; s_treasure.grab_timer=0; s_treasure.room=room_idx;
+     s_treasure.x=(int16_t)((def->w/2)*TILE_SIZE);
+     s_treasure.y=dv_floor_y(def->h);}
+}
+
 static void load_dungeon_room(uint8_t pool_idx,uint8_t from_fwd){
     const dungeon_room_def_t *room=&room_pool[pool_idx];
+    uint8_t room_idx=s_dungeon.current_idx;
     hal_sprite_hide_all();s_action_npc_count=0;
+    enemies_clear();
     hal_tilemap_set(room->map,room->w,room->h);
     s_act_map_w=room->w;s_act_map_h=room->h;
     if(from_fwd){s_player.x=room->entry_back_x;s_player.y=room->entry_back_y;}
     else{s_player.x=room->entry_fwd_x;s_player.y=room->entry_fwd_y;}
     s_player.vel_x=0;s_player.vel_y=0;s_player.vel_fx=0;s_player.vel_fy=0;s_player.on_ground=0;s_player.on_ladder=0;s_player.attacking=0;s_player.crouching=0;
     s_camera_x=0;s_dungeon.in_entry=0;
+    s_treasure.active=0;
+    /* Spawn enemies from the FROZEN visit instance, skipping dead slots. */
+    if(s_dvisit.minted && room_idx<DV_MAX_ROOMS){
+        dv_room_t *rm=&s_dvisit.rooms[room_idx];
+        uint8_t sl;
+        for(sl=0;sl<rm->slot_count;sl++){
+            uint8_t i;
+            if(rm->slot_def[sl]==0xFF) continue;
+            if(rm->slot_dead[sl]) continue; /* stay dead */
+            enemy_spawn(rm->slot_def[sl], rm->slot_x[sl], rm->slot_y[sl]);
+            /* Tag the just-spawned enemy with room+slot for the kill ledger. */
+            for(i=0;i<MAX_ENEMIES;i++){
+                if(s_enemies[i].active && s_enemies[i].room_idx==0xFF){
+                    s_enemies[i].room_idx=room_idx;
+                    s_enemies[i].slot_idx=sl;
+                    break;
+                }
+            }
+        }
+        /* Re-entering a cleared room: make on-clear/open treasure grabbable. */
+        if(rm->treasure_trigger==TREASURE_ON_CLEAR && dv_room_clear(room_idx)
+           && !rm->treasure_taken)
+            dv_spawn_treasure(room_idx);
+        else if(rm->treasure_trigger==TREASURE_OPEN && !rm->treasure_taken)
+            dv_spawn_treasure(room_idx);
+    }
 }
 
 static void load_entry_room(void){
@@ -686,6 +798,7 @@ static void dungeon_init_fixed(void){
     uint8_t i;s_dungeon.num_rooms=FIXED_DUNGEON_SIZE;
     for(i=0;i<FIXED_DUNGEON_SIZE;i++)s_dungeon.room_order[i]=fixed_dungeon_order[i];
     s_dungeon.current_idx=0;s_dungeon.in_entry=0;
+    dvisit_mint(0); /* set dungeon: fixed enemy assignments frozen at entry */
     load_dungeon_room(s_dungeon.room_order[0],1);
 }
 
@@ -698,6 +811,7 @@ static void dungeon_init_random(void){
         uint8_t pick=(uint8_t)rng_range(DUNGEON_ROOM_POOL_SIZE);
         if(!used[pick]){used[pick]=1;s_dungeon.room_order[s_dungeon.num_rooms]=pick;s_dungeon.num_rooms++;}}
     s_dungeon.current_idx=0;
+    dvisit_mint(1); /* random dungeon: enemies rolled per slot, frozen at entry */
     /* Start in the entry room — player can exit L/R or descend into depths */
     load_entry_room();
 }
@@ -711,12 +825,12 @@ static void dungeon_handle_transition(int16_t pcx){
                 load_entry_room();return;
             }
             /* Fixed dungeon: exit to overworld from first room */
-            s_scene=SCENE_OVERWORLD;return;
+            dvisit_reset();s_scene=SCENE_OVERWORLD;return;
         }
         s_dungeon.current_idx--;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],0);
     }else{
         /* Going forward */
-        if(s_dungeon.current_idx>=s_dungeon.num_rooms-1){s_scene=SCENE_OVERWORLD;return;}
+        if(s_dungeon.current_idx>=s_dungeon.num_rooms-1){dvisit_reset();s_scene=SCENE_OVERWORLD;return;}
         s_dungeon.current_idx++;load_dungeon_room(s_dungeon.room_order[s_dungeon.current_idx],1);
     }
 }
@@ -1068,6 +1182,7 @@ av:
                     s_exit_entry_side = 0;
                     if (s_map_event_type == MAP_EVENT_FIELD
                         || (s_map_event_type == MAP_EVENT_DUNGEON_RANDOM && s_dungeon.in_entry)) {
+                        if(s_map_event_type==MAP_EVENT_DUNGEON_RANDOM) dvisit_reset();
                         s_scene = SCENE_OVERWORLD;
                         return;
                     }
@@ -1189,6 +1304,29 @@ av:
     /* Update enemies and their projectiles */
     enemies_update();
     eprojs_update();
+
+    /* TREASURE: touch to grab, brief animation, then fade + return to map. */
+    if(s_treasure.active){
+        if(s_treasure.grab_timer>0){
+            s_treasure.grab_timer--;
+            if(s_treasure.grab_timer==0){
+                if(s_treasure.room<DV_MAX_ROOMS)
+                    s_dvisit.rooms[s_treasure.room].treasure_taken=1;
+                s_treasure.active=0;
+                s_transition_timer=TRANSITION_FRAMES; /* fade */
+                dvisit_reset();
+                s_scene=SCENE_OVERWORLD;
+                return;
+            }
+        } else {
+            int16_t phx=s_player.x+PLAYER_HB_X_OFFSET, phy=s_player.y+PLAYER_HB_Y_OFFSET;
+            if(phx < s_treasure.x+16 && phx+PLAYER_HB_W > s_treasure.x &&
+               phy < s_treasure.y+16 && phy+PLAYER_HB_H > s_treasure.y){
+                s_treasure.grab_timer=40; /* ~0.8s collect; player frozen */
+                s_player.vel_fx=0;s_player.vel_x=0;
+            }
+        }
+    }
     /* No menu exit from action scenes */
 }
 
@@ -1269,6 +1407,7 @@ static void enemy_spawn(uint8_t def_id, int16_t x, int16_t y){
             s_enemies[i].hurt_timer=0;
             s_enemies[i].atk_timer=d->attack_cooldown;
             s_enemies[i].state=0; s_enemies[i].anim=0;
+            s_enemies[i].room_idx=0xFF; s_enemies[i].slot_idx=0xFF;
             return;
         }
     }
@@ -1316,7 +1455,21 @@ static void enemy_take_hit(uint8_t idx, uint8_t base_dmg, uint8_t dmg_type){
     e->hurt_timer=12;
     /* Knockback away from player */
     e->vel_fx=(s_player.x < e->x)?(int16_t)(2*FX_ONE):(int16_t)(-2*FX_ONE);
-    if(e->hp<=0) e->active=0;
+    if(e->hp<=0){
+        e->active=0;
+        /* KILL LEDGER: mark slot dead in the SAME place active flips to 0,
+         * so ledger and live state never disagree. */
+        if(e->room_idx<DV_MAX_ROOMS && e->slot_idx<DV_MAX_SLOTS){
+            dv_room_t *rm=&s_dvisit.rooms[e->room_idx];
+            rm->slot_dead[e->slot_idx]=1;
+            /* Event-driven treasure: only check on a kill, never polled. */
+            if(rm->treasure_trigger==TREASURE_ON_CLEAR
+               && !rm->treasure_spawned && !rm->treasure_taken
+               && dv_room_clear(e->room_idx)){
+                dv_spawn_treasure(e->room_idx);
+            }
+        }
+    }
 }
 
 /* Damage the player from an enemy contact/projectile. */
@@ -1572,6 +1725,15 @@ static void enemies_draw(int16_t cam_x){
         {int16_t sx=p->x-cam_x, sy=p->y;
          if(sx>=-8&&sx<SCREEN_W+8)
             hal_draw_rect(sx,sy,pd->w,pd->h,pd->color);}
+    }
+    /* Treasure chest (gold). Flashes during the grab animation. */
+    if(s_treasure.active && !(s_treasure.grab_timer && (s_treasure.grab_timer&2))){
+        int16_t sx=s_treasure.x-cam_x, sy=s_treasure.y;
+        if(sx>=-16&&sx<SCREEN_W+16){
+            hal_draw_rect(sx,sy+4,16,12,0xE8);  /* chest body */
+            hal_draw_rect(sx,sy,16,5,0xEC);      /* lid */
+            hal_draw_rect(sx+6,sy+6,4,4,0xFC);   /* gold latch */
+        }
     }
 }
 
