@@ -135,7 +135,9 @@ static const projectile_def_t projectile_defs[PROJ_TYPE_COUNT] = {
  * a behavior, attack(s), and a vulnerability profile and you have an enemy.
  *--------------------------------------------------------------------------*/
 typedef struct {
-    const char *name;
+    const char *str_id;      /* STABLE id — maps reference this, never the
+                              * array index. Reordering the table is safe. */
+    const char *name;        /* display name (shown in editor/HUD)   */
 
     /* Appearance */
     uint8_t  pattern;        /* base sprite pattern index            */
@@ -184,40 +186,52 @@ typedef enum {
  * (These already exist in the HAL sprite bank.) Palette offset recolors. */
 static const enemy_def_t enemy_defs[ENEMY_DEF_COUNT] = {
   /* ENEMY_SLIME_GREEN: weak hopping blob, hurt extra by bludgeon */
-  { "Green Slime", /*pat*/7, /*pal*/0, /*w*/1,/*h*/1, /*hp*/2, /*cdmg*/1, DMG_BLUDGEON,
+  { "green_slime", "Green Slime", /*pat*/7, /*pal*/0, /*w*/1,/*h*/1, /*hp*/2, /*cdmg*/1, DMG_BLUDGEON,
     MOVE_HOP, BHV_CHASE, /*spd*/1, ATK_CONTACT, PROJ_NONE, /*cd*/0,
     { VULN_NORMAL, VULN_HALF, VULN_DOUBLE, VULN_NORMAL, VULN_NORMAL } },
 
   /* ENEMY_SLIME_RED: palette-swapped slime, tougher, resists fire (MAGIC_A) */
-  { "Red Slime", /*pat*/7, /*pal*/4, /*w*/1,/*h*/1, /*hp*/4, /*cdmg*/2, DMG_BLUDGEON,
+  { "red_slime", "Red Slime", /*pat*/7, /*pal*/4, /*w*/1,/*h*/1, /*hp*/4, /*cdmg*/2, DMG_BLUDGEON,
     MOVE_HOP, BHV_CHASE, /*spd*/1, ATK_CONTACT, PROJ_NONE, /*cd*/0,
     { VULN_NORMAL, VULN_HALF, VULN_DOUBLE, VULN_HALF, VULN_NORMAL } },
 
   /* ENEMY_SKELETON: walks, weak to bludgeon, immune to pierce (bones) */
-  { "Skeleton", /*pat*/6, /*pal*/0, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/2, DMG_SLASH,
+  { "skeleton", "Skeleton", /*pat*/6, /*pal*/0, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/2, DMG_SLASH,
     MOVE_WALK, BHV_PATROL, /*spd*/1, ATK_CONTACT, PROJ_NONE, /*cd*/0,
     { VULN_NORMAL, VULN_IMMUNE, VULN_DOUBLE, VULN_NORMAL, VULN_DOUBLE } },
 
   /* ENEMY_BAT: flies sine, fast, low hp, normal to everything */
-  { "Bat", /*pat*/5, /*pal*/8, /*w*/1,/*h*/1, /*hp*/1, /*cdmg*/1, DMG_PIERCE,
+  { "bat", "Bat", /*pat*/5, /*pal*/8, /*w*/1,/*h*/1, /*hp*/1, /*cdmg*/1, DMG_PIERCE,
     MOVE_FLY_SINE, BHV_CHASE, /*spd*/2, ATK_CONTACT, PROJ_NONE, /*cd*/0,
     { VULN_NORMAL, VULN_NORMAL, VULN_NORMAL, VULN_NORMAL, VULN_NORMAL } },
 
   /* ENEMY_KNIGHT: sword-duel AI, resists slash (armor), weak to bludgeon */
-  { "Knight", /*pat*/6, /*pal*/2, /*w*/1,/*h*/1, /*hp*/6, /*cdmg*/2, DMG_SLASH,
+  { "knight", "Knight", /*pat*/6, /*pal*/2, /*w*/1,/*h*/1, /*hp*/6, /*cdmg*/2, DMG_SLASH,
     MOVE_WALK, BHV_SWORD_DUEL, /*spd*/1, ATK_COUNTER, PROJ_NONE, /*cd*/45,
     { VULN_HALF, VULN_HALF, VULN_DOUBLE, VULN_NORMAL, VULN_NORMAL } },
 
   /* ENEMY_MAGE: stationary, throws fireballs (MAGIC_A), weak to pierce */
-  { "Mage", /*pat*/5, /*pal*/3, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/1, DMG_MAGIC_A,
+  { "mage", "Mage", /*pat*/5, /*pal*/3, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/1, DMG_MAGIC_A,
     MOVE_NONE, BHV_STATIONARY, /*spd*/0, ATK_PROJECTILE, PROJ_FIREBALL, /*cd*/70,
     { VULN_NORMAL, VULN_DOUBLE, VULN_NORMAL, VULN_HALF, VULN_NORMAL } },
 
   /* ENEMY_BOMBER: hops, lobs bombs that arc and explode on landing */
-  { "Bomber", /*pat*/4, /*pal*/1, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/1, DMG_BLUDGEON,
+  { "bomber", "Bomber", /*pat*/4, /*pal*/1, /*w*/1,/*h*/1, /*hp*/3, /*cdmg*/1, DMG_BLUDGEON,
     MOVE_HOP, BHV_JUMP_IN_PLACE, /*spd*/1, ATK_PROJECTILE, PROJ_BOMB, /*cd*/90,
     { VULN_NORMAL, VULN_NORMAL, VULN_NORMAL, VULN_NORMAL, VULN_NORMAL } },
 };
+
+/* Resolve a stable string id to its def index. Returns 0xFF if not found.
+ * Maps store str_id; load-time resolves once via this. */
+static uint8_t enemy_id_from_str(const char *id){
+    uint8_t i;
+    for(i=0;i<ENEMY_DEF_COUNT;i++){
+        const char *a=enemy_defs[i].str_id, *b=id;
+        while(*a && *b && *a==*b){a++;b++;}
+        if(*a==0 && *b==0) return i;
+    }
+    return 0xFF;
+}
 
 /*--------------------------------------------------------------------------
  * SLOT SYSTEM
