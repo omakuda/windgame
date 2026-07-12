@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "enemies": [
+    {
+      "id": "green_slime",
+      "name": "Green Slime",
+      "pattern": 7,
+      "palette": 0,
+      "w": 1, "h": 1,
+      "hp": 2,
+      "movement": "hop",
+      "behavior": "chase",
+      "roles": ["ground"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 2, "bludgeon": 8, "magic_a": 4, "magic_b": 4}
+    },
+    {
+      "id": "red_slime",
+      "name": "Red Slime",
+      "pattern": 7,
+      "palette": 4,
+      "w": 1, "h": 1,
+      "hp": 4,
+      "movement": "hop",
+      "behavior": "chase",
+      "roles": ["ground"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 2, "bludgeon": 8, "magic_a": 2, "magic_b": 4}
+    },
+    {
+      "id": "skeleton",
+      "name": "Skeleton",
+      "pattern": 6,
+      "palette": 0,
+      "w": 1, "h": 1,
+      "hp": 3,
+      "movement": "walk",
+      "behavior": "patrol",
+      "roles": ["ground"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 0, "bludgeon": 8, "magic_a": 4, "magic_b": 8}
+    },
+    {
+      "id": "bat",
+      "name": "Bat",
+      "pattern": 5,
+      "palette": 8,
+      "w": 1, "h": 1,
+      "hp": 1,
+      "movement": "fly_sine",
+      "behavior": "chase",
+      "roles": ["flying"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 4, "bludgeon": 4, "magic_a": 4, "magic_b": 4}
+    },
+    {
+      "id": "knight",
+      "name": "Knight",
+      "pattern": 6,
+      "palette": 2,
+      "w": 1, "h": 1,
+      "hp": 6,
+      "movement": "walk",
+      "behavior": "duel",
+      "roles": ["ground"],
+      "boss": false,
+      "vuln": {"slash": 2, "pierce": 2, "bludgeon": 8, "magic_a": 4, "magic_b": 4}
+    },
+    {
+      "id": "mage",
+      "name": "Mage",
+      "pattern": 5,
+      "palette": 3,
+      "w": 1, "h": 1,
+      "hp": 3,
+      "movement": "none",
+      "behavior": "stationary",
+      "roles": ["ground", "ranged"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 8, "bludgeon": 4, "magic_a": 2, "magic_b": 4}
+    },
+    {
+      "id": "bomber",
+      "name": "Bomber",
+      "pattern": 4,
+      "palette": 1,
+      "w": 1, "h": 1,
+      "hp": 3,
+      "movement": "hop",
+      "behavior": "jump",
+      "roles": ["ground", "ranged"],
+      "boss": false,
+      "vuln": {"slash": 4, "pierce": 4, "bludgeon": 4, "magic_a": 4, "magic_b": 4}
+    }
+  ]
+}
