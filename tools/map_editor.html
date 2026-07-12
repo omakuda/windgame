@@ -240,6 +240,13 @@ input[type="file"] { display:none; }
     <h3>ENEMY TYPES</h3>
     <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Click type, then click map to place. Esc to deselect.</div>
     <div id="enemy-type-list"></div>
+    <div style="margin-top:6px">
+      <label style="font-size:10px;color:var(--dim);cursor:pointer">
+        <input type="file" id="catalogFile" accept=".json" style="display:none" onchange="loadCatalogFile(event)">
+        <span style="text-decoration:underline">Load catalog…</span>
+      </label>
+      <span style="font-size:10px;color:var(--dim)" id="catalogStatus"></span>
+    </div>
     <h3 style="margin-top:8px">PLACED ENEMIES</h3>
     <div id="enemy-placed-list" class="npc-placed-list"></div>
   </div>
@@ -290,6 +297,38 @@ input[type="file"] { display:none; }
       <button onclick="plPrevApply()" style="padding:4px 10px;font-size:11px">Apply</button>
       <span style="flex:1"></span>
       <button onclick="closeParallaxPreview()" style="padding:4px 10px;font-size:11px;background:var(--accent2);color:#fff;border:1px solid var(--accent2);border-radius:3px">✕ Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="enemy-picker-overlay" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1200">
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--accent);border-radius:8px;padding:0;width:600px;max-width:92vw;box-shadow:0 8px 32px rgba(0,0,0,.6);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)">
+      <span id="ep-title" style="font-weight:bold;color:var(--accent);font-size:14px">Assign enemy</span>
+      <span onclick="closeEnemyPicker()" style="cursor:pointer;color:var(--dim);font-size:18px">✕</span>
+    </div>
+    <div id="ep-tabs" style="display:flex;gap:4px;padding:10px 14px 0"></div>
+    <div style="padding:14px">
+      <div id="ep-grid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px">
+        <button id="ep-prev" onclick="epPage(-1)" style="width:104px;height:34px;font-size:12px">◀ Prev</button>
+        <span id="ep-pageinfo" style="font-size:12px;color:var(--dim)"></span>
+        <button id="ep-next" onclick="epPage(1)" style="width:104px;height:34px;font-size:12px">Next ▶</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--border);background:var(--panel2)">
+      <span style="font-size:12px;color:var(--dim)">Selected:</span>
+      <span id="ep-selname" style="font-size:13px;font-weight:bold;color:var(--text)">— none —</span>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--dim)">Tint:</span>
+      <select id="ep-tint" style="width:90px;height:30px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:2px">
+        <option value="default">default</option><option value="red">red</option>
+        <option value="blue">blue</option><option value="green">green</option>
+        <option value="gold">gold</option><option value="purple">purple</option>
+      </select>
+      <span style="font-size:12px;color:var(--dim)">Wt:</span>
+      <input id="ep-weight" type="number" value="10" min="0" max="99" style="width:48px;height:30px;font-size:11px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:2px">
+      <button onclick="applyEnemyPicker()" style="height:30px;padding:0 14px;font-size:12px;background:var(--accent);color:#fff;border:none;border-radius:3px;cursor:pointer">Assign</button>
     </div>
   </div>
 </div>
@@ -868,60 +907,203 @@ function buildNpcPanel(){
 }
 function removeNpc(i){const m=proj.maps[active];if(!m)return;m.npcs.splice(i,1);buildNpcPanel();redraw();}
 
-// ======== ENEMY TYPES & SPRITES ========
-const ENEMY_TYPES=[
-  {key:'slime',    name:'Slime',    col1:0x28, col2:0x2C, size:10},
-  {key:'skeleton', name:'Skeleton', col1:0xB6, col2:0xDB, size:14},
-  {key:'bat',      name:'Bat',      col1:0x57, col2:0x9F, size:10},
-  {key:'knight',   name:'Knight',   col1:0xC0, col2:0xE4, size:14},
-  {key:'wizard',   name:'Wizard',   col1:0x5F, col2:0xBF, size:14},
-  {key:'boss',     name:'Boss',     col1:0xC0, col2:0xFF, size:16},
-];
-const enemyImg=[];
-let selEnemyType=-1;
+// ======== ENEMY CATALOG & PICKER ========
+// Catalog generated from enemies.h by tools/gen_enemy_catalog.c.
+// Embedded so the editor works from file:// (no fetch). To update after
+// changing enemies.h: regenerate enemy_catalog.json, then paste the new
+// object here, or use the "Load catalog" button to load the JSON at runtime.
+let ENEMY_CATALOG = {"version":1,"enemies":[{"id":"green_slime","name":"Green Slime","pattern":7,"palette":0,"w":1,"h":1,"hp":2,"movement":"hop","behavior":"chase","roles":["ground"],"boss":false,"vuln":{"slash":4,"pierce":2,"bludgeon":8,"magic_a":4,"magic_b":4}},{"id":"red_slime","name":"Red Slime","pattern":7,"palette":4,"w":1,"h":1,"hp":4,"movement":"hop","behavior":"chase","roles":["ground"],"boss":false,"vuln":{"slash":4,"pierce":2,"bludgeon":8,"magic_a":2,"magic_b":4}},{"id":"skeleton","name":"Skeleton","pattern":6,"palette":0,"w":1,"h":1,"hp":3,"movement":"walk","behavior":"patrol","roles":["ground"],"boss":false,"vuln":{"slash":4,"pierce":0,"bludgeon":8,"magic_a":4,"magic_b":8}},{"id":"bat","name":"Bat","pattern":5,"palette":8,"w":1,"h":1,"hp":1,"movement":"fly_sine","behavior":"chase","roles":["flying"],"boss":false,"vuln":{"slash":4,"pierce":4,"bludgeon":4,"magic_a":4,"magic_b":4}},{"id":"knight","name":"Knight","pattern":6,"palette":2,"w":1,"h":1,"hp":6,"movement":"walk","behavior":"duel","roles":["ground"],"boss":false,"vuln":{"slash":2,"pierce":2,"bludgeon":8,"magic_a":4,"magic_b":4}},{"id":"mage","name":"Mage","pattern":5,"palette":3,"w":1,"h":1,"hp":3,"movement":"none","behavior":"stationary","roles":["ground","ranged"],"boss":false,"vuln":{"slash":4,"pierce":8,"bludgeon":4,"magic_a":2,"magic_b":4}},{"id":"bomber","name":"Bomber","pattern":4,"palette":1,"w":1,"h":1,"hp":3,"movement":"hop","behavior":"jump","roles":["ground","ranged"],"boss":false,"vuln":{"slash":4,"pierce":4,"bludgeon":4,"magic_a":4,"magic_b":4}}]};
 
-function initEnemySprites(){
-  enemyImg.length=0;
-  ENEMY_TYPES.forEach(en=>{
-    const cv=document.createElement('canvas');cv.width=16;cv.height=16;const g=cv.getContext('2d');
-    for(let py=0;py<16;py++)for(let px=0;px<16;px++){
-      let c=0x00;
-      const cx2=px-7,cy2=py-7;
-      const r2=cx2*cx2+cy2*cy2;
-      const rmax=(en.size/2)*(en.size/2);
-      if(r2<=rmax){
-        c=((px+py)&1)?en.col1:en.col2;
-        /* Eyes */
-        if(py>=5&&py<=7&&(px===5||px===9)) c=0xFF;
-        if(py===6&&(px===6||px===10)) c=0x00;
-      }
+// Tint palette-swap options (COSMETIC only — mechanical color meaning is a
+// run-time trait, decided by the palette-meaning shuffle, not here).
+const ENEMY_TINTS = {
+  default:null, red:[0xC0,0x28], blue:[0x03,0x57], green:[0x1C,0x9C],
+  gold:[0xE4,0xFC], purple:[0x53,0x9F]
+};
+
+// Legacy per-type render params keyed by str_id, used to draw the
+// approximation sprite in the editor. Falls back to a generic blob.
+const ENEMY_RENDER = {
+  green_slime:{col1:0x1C,col2:0x9C,size:11,shape:'blob'},
+  red_slime:  {col1:0xC0,col2:0xE4,size:11,shape:'blob'},
+  skeleton:   {col1:0xB6,col2:0xDB,size:13,shape:'humanoid'},
+  bat:        {col1:0x57,col2:0x9F,size:11,shape:'bat'},
+  knight:     {col1:0x88,col2:0xB4,size:13,shape:'humanoid'},
+  mage:       {col1:0x03,col2:0x57,size:13,shape:'humanoid'},
+  bomber:     {col1:0xE4,col2:0xC0,size:11,shape:'blob'},
+};
+
+function catEnemies(){ return (ENEMY_CATALOG&&ENEMY_CATALOG.enemies)||[]; }
+function catById(id){ return catEnemies().find(e=>e.id===id)||null; }
+
+const enemyImg={};   // str_id -> canvas (approximation sprite)
+let selEnemyType=-1; // index into catEnemies() of currently-selected
+
+function drawEnemyApprox(g, ent, tint){
+  const r = ENEMY_RENDER[ent.id] || {col1:0x88,col2:0xB4,size:12,shape:'blob'};
+  let c1=r.col1,c2=r.col2;
+  if(tint&&ENEMY_TINTS[tint]){c1=ENEMY_TINTS[tint][0];c2=ENEMY_TINTS[tint][1];}
+  const S=16, cxp=7.5, cyp=8, rad=r.size/2;
+  for(let py=0;py<S;py++)for(let px=0;px<S;px++){
+    let c=null;
+    const dx=px-cxp, dy=py-cyp, d2=dx*dx+dy*dy;
+    if(r.shape==='bat'){
+      // body ellipse + wings
+      if((dx*dx)/9+(dy*dy)/6 <= 1) c=((px+py)&1)?c1:c2;
+      if(py>=6&&py<=9&&(px<=3||px>=12)) c=c1;
+    } else if(r.shape==='humanoid'){
+      if(py<=6 && d2<=8) c=((px+py)&1)?c1:c2;          // head
+      if(py>=6 && px>=5 && px<=10) c=((px+py)&1)?c1:c2;  // body
+    } else { // blob
+      if(d2<=rad*rad) c=((px+py)&1)?c1:c2;
+    }
+    if(c!==null){
+      // eyes
+      if(py>=5&&py<=7&&(px===5||px===10)) c=0xFF;
       g.fillStyle=rgb332(c);g.fillRect(px,py,1,1);
     }
-    enemyImg.push(cv);
+  }
+}
+
+function initEnemySprites(){
+  for(const k in enemyImg) delete enemyImg[k];
+  catEnemies().forEach(ent=>{
+    const cv=document.createElement('canvas');cv.width=16;cv.height=16;
+    drawEnemyApprox(cv.getContext('2d'), ent, null);
+    enemyImg[ent.id]=cv;
   });
 }
 
 function buildEnemyPanel(){
   const tl=document.getElementById('enemy-type-list');tl.innerHTML='';
-  ENEMY_TYPES.forEach((en,i)=>{
-    const d=document.createElement('div');d.className='npc-type-item'+(i===selEnemyType?' active':'');
+  const ents=catEnemies();
+  // Panel shows the current selection + a button that opens the full picker.
+  const cur = (selEnemyType>=0&&selEnemyType<ents.length)?ents[selEnemyType]:null;
+  const box=document.createElement('div');box.className='npc-type-item active';
+  box.style.cursor='pointer';
+  if(cur){
     const cv=document.createElement('canvas');cv.width=16;cv.height=16;cv.style.width='24px';cv.style.height='24px';
-    cv.style.imageRendering='pixelated';cv.getContext('2d').drawImage(enemyImg[i],0,0);
-    const nm=document.createElement('span');nm.className='npc-name';nm.textContent=en.name;
-    d.appendChild(cv);d.appendChild(nm);
-    d.onclick=()=>{selEnemyType=i;buildEnemyPanel();};tl.appendChild(d);
-  });
+    cv.style.imageRendering='pixelated';cv.getContext('2d').drawImage(enemyImg[cur.id],0,0);
+    const nm=document.createElement('span');nm.className='npc-name';nm.textContent=cur.name;
+    box.appendChild(cv);box.appendChild(nm);
+  } else {
+    const nm=document.createElement('span');nm.className='npc-name';nm.textContent='(pick enemy…)';
+    box.appendChild(nm);
+  }
+  box.onclick=()=>openEnemyPicker();
+  tl.appendChild(box);
+  const btn=document.createElement('div');btn.style.cssText='margin-top:6px;font-size:10px;color:var(--dim);cursor:pointer;text-decoration:underline';
+  btn.textContent='Open enemy picker…';btn.onclick=()=>openEnemyPicker();tl.appendChild(btn);
+
   const pl=document.getElementById('enemy-placed-list');pl.innerHTML='';
   const m=active>=0?proj.maps[active]:null;if(!m)return;
   (m.enemies||[]).forEach((e,i)=>{
     const d=document.createElement('div');d.className='npc-placed';
-    d.innerHTML=`<span style="color:var(--accent2)">${e.type}</span>
+    const nm=catById(e.type)?catById(e.type).name:e.type;
+    const tintTag=e.tint&&e.tint!=='default'?` <span style="color:var(--dim)">[${e.tint}]</span>`:'';
+    d.innerHTML=`<span style="color:var(--accent2)">${nm}</span>${tintTag}
       <span style="color:var(--dim);margin-left:4px">(${e.tx},${e.ty})</span>
       <span class="npc-del" onclick="removeEnemy(${i})">×</span>`;
     pl.appendChild(d);
   });
 }
 function removeEnemy(i){const m=proj.maps[active];if(!m)return;m.enemies.splice(i,1);buildEnemyPanel();redraw();}
+
+// ======== ENEMY PICKER MODAL ========
+let epTab='all', epPageNum=0, epSel=null;
+const EP_TABS=[['all','All'],['ground','Ground'],['flying','Flying'],['ranged','Ranged'],['boss','Boss']];
+
+function openEnemyPicker(){
+  epTab='all';epPageNum=0;
+  const ents=catEnemies();
+  epSel = (selEnemyType>=0&&selEnemyType<ents.length)?ents[selEnemyType].id:null;
+  document.getElementById('enemy-picker-overlay').style.display='block';
+  epRender();
+}
+function closeEnemyPicker(){document.getElementById('enemy-picker-overlay').style.display='none';}
+function epPool(){
+  const ents=catEnemies();
+  if(epTab==='boss') return ents.filter(e=>e.boss);
+  if(epTab==='all')  return ents.filter(e=>!e.boss);
+  return ents.filter(e=>!e.boss && (e.roles||[]).includes(epTab));
+}
+function epPerPage(){return epTab==='boss'?6:10;}
+function epCols(){return epTab==='boss'?3:5;}
+function epPage(dir){epPageNum+=dir;epRender();}
+function epRenderTabs(){
+  const row=document.getElementById('ep-tabs');row.innerHTML='';
+  EP_TABS.forEach(([k,label])=>{
+    const active=k===epTab;
+    const b=document.createElement('button');b.textContent=label;
+    b.style.cssText=`height:28px;padding:0 12px;font-size:12px;border-radius:4px 4px 0 0;border:1px solid var(--border);border-bottom:none;cursor:pointer;background:${active?'var(--panel)':'var(--panel2)'};color:${active?'var(--text)':'var(--dim)'};font-weight:${active?'bold':'normal'}`;
+    b.onclick=()=>{epTab=k;epPageNum=0;epRender();};
+    row.appendChild(b);
+  });
+}
+function epRender(){
+  epRenderTabs();
+  const g=document.getElementById('ep-grid');
+  const data=epPool();
+  const pp=epPerPage(), pages=Math.max(1,Math.ceil(data.length/pp));
+  if(epPageNum>=pages)epPageNum=pages-1;
+  if(epPageNum<0)epPageNum=0;
+  g.style.gridTemplateColumns=`repeat(${epCols()},1fr)`;
+  g.innerHTML='';
+  const iconPx=epTab==='boss'?96:56;
+  data.slice(epPageNum*pp,epPageNum*pp+pp).forEach(ent=>{
+    const isSel=epSel===ent.id;
+    const cell=document.createElement('div');
+    cell.style.cssText=`border:${isSel?'2px':'1px'} solid ${isSel?'var(--accent)':'var(--border)'};border-radius:5px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;background:var(--panel)`;
+    const iconWrap=document.createElement('div');
+    iconWrap.style.cssText=`width:${iconPx}px;height:${iconPx}px;display:flex;align-items:center;justify-content:center;background:var(--panel2);border-radius:5px`;
+    const cv=document.createElement('canvas');cv.width=16;cv.height=16;
+    const dispPx=Math.round(iconPx*0.72);
+    cv.style.width=dispPx+'px';cv.style.height=dispPx+'px';cv.style.imageRendering='pixelated';
+    drawEnemyApprox(cv.getContext('2d'),ent,document.getElementById('ep-tint').value);
+    iconWrap.appendChild(cv);
+    const nm=document.createElement('span');nm.style.cssText='font-size:11px;text-align:center;line-height:1.2;color:var(--text)';nm.textContent=ent.name;
+    cell.appendChild(iconWrap);cell.appendChild(nm);
+    cell.onclick=()=>{epSel=ent.id;document.getElementById('ep-selname').textContent=ent.name;epRender();};
+    g.appendChild(cell);
+  });
+  document.getElementById('ep-pageinfo').textContent=`Page ${epPageNum+1} / ${pages}`;
+  document.getElementById('ep-prev').disabled=epPageNum===0;
+  document.getElementById('ep-next').disabled=epPageNum>=pages-1;
+  const selEnt=epSel?catById(epSel):null;
+  document.getElementById('ep-selname').textContent=selEnt?selEnt.name:'— none —';
+}
+function applyEnemyPicker(){
+  if(!epSel){closeEnemyPicker();return;}
+  const ents=catEnemies();
+  selEnemyType=ents.findIndex(e=>e.id===epSel);
+  closeEnemyPicker();
+  buildEnemyPanel();
+  redraw();
+}
+// Load an updated enemy_catalog.json at runtime (from tools/gen_enemy_catalog.c).
+function loadCatalogFile(ev){
+  const f=ev.target.files&&ev.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const j=JSON.parse(rd.result);
+      if(!j.enemies||!Array.isArray(j.enemies))throw new Error('no enemies[]');
+      ENEMY_CATALOG=j;
+      initEnemySprites();
+      selEnemyType=-1;
+      buildEnemyPanel();
+      document.getElementById('catalogStatus').textContent=`loaded ${j.enemies.length}`;
+    }catch(e){
+      document.getElementById('catalogStatus').textContent='error: '+e.message;
+    }
+  };
+  rd.readAsText(f);
+}
+// Re-render picker icons when tint changes (tint affects thumbnails).
+document.addEventListener('DOMContentLoaded',()=>{
+  const t=document.getElementById('ep-tint');
+  if(t)t.addEventListener('change',()=>{ if(document.getElementById('enemy-picker-overlay').style.display==='block') epRender();});
+});
 
 function isEnemyPlacementValid(m,tx,ty){
   if(tx<0||tx>=m.w||ty<0||ty>=m.h) return false;
@@ -1081,9 +1263,9 @@ function redraw(){
   });
   // Draw placed enemies (1 tile)
   if(m.enemies)(m.enemies).forEach(e=>{
-    const ti=ENEMY_TYPES.findIndex(t=>t.key===e.type);if(ti<0)return;
+    const img=enemyImg[e.type];if(!img)return;
     const ex2=e.tx*ts,ey2=e.ty*ts;
-    ctx.drawImage(enemyImg[ti],ex2,ey2,ts,ts);
+    ctx.drawImage(img,ex2,ey2,ts,ts);
     ctx.strokeStyle='#ff5b7a';ctx.lineWidth=2;ctx.strokeRect(ex2+1,ey2+1,ts-2,ts-2);
   });
   // Selection rectangle
@@ -1103,10 +1285,13 @@ function redraw(){
   }
   // Enemy cursor ghost
   if(curTool==='enemy'&&selEnemyType>=0&&cx>=0&&cy>=0){
+    const ents=catEnemies();
+    const curEnt=(selEnemyType<ents.length)?ents[selEnemyType]:null;
+    const ghostImg=curEnt?enemyImg[curEnt.id]:null;
     const valid=isEnemyPlacementValid(m,cx,cy);
     ctx.globalAlpha=0.6;
     if(!valid){ctx.fillStyle='rgba(255,40,40,0.4)';ctx.fillRect(cx*ts,cy*ts,ts,ts);}
-    ctx.drawImage(enemyImg[selEnemyType],cx*ts,cy*ts,ts,ts);
+    if(ghostImg)ctx.drawImage(ghostImg,cx*ts,cy*ts,ts,ts);
     if(!valid){ctx.fillStyle='rgba(255,40,40,0.35)';ctx.fillRect(cx*ts,cy*ts,ts,ts);}
     ctx.globalAlpha=1.0;
     ctx.strokeStyle=valid?'rgba(255,90,120,.8)':'rgba(255,60,60,.9)';ctx.lineWidth=2;
@@ -1240,8 +1425,12 @@ canvas.addEventListener('mousedown',e=>{e.preventDefault();if(active<0)return;hi
   }
   if(curTool==='enemy'){
     const m=proj.maps[active];if(!m)return;
-    if(selEnemyType>=0&&isEnemyPlacementValid(m,cx,cy)){
-      if(!m.enemies)m.enemies=[];m.enemies.push({tx:cx,ty:cy,type:ENEMY_TYPES[selEnemyType].key});buildEnemyPanel();redraw();}
+    const ents=catEnemies();
+    if(selEnemyType>=0&&selEnemyType<ents.length&&isEnemyPlacementValid(m,cx,cy)){
+      if(!m.enemies)m.enemies=[];
+      const tint=document.getElementById('ep-tint').value;
+      m.enemies.push({tx:cx,ty:cy,type:ents[selEnemyType].id,tint:(tint==='default'?undefined:tint)});
+      buildEnemyPanel();redraw();}
     updateInfo();return;
   }
   if(curTool==='select'){sel=null;selDrag=true;selAnchorX=cx;selAnchorY=cy;sel={x1:cx,y1:cy,x2:cx,y2:cy};redraw();updateInfo();return;}
@@ -1949,7 +2138,8 @@ function exportC(){
         o+=`#define ${b.toUpperCase()}_ENEMY_COUNT ${m.enemies.length}\n`;
         o+=`static const int16_t ${b}_enemy_x[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>e.tx+'*16').join(',')}};\n`;
         o+=`static const int16_t ${b}_enemy_y[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>e.ty+'*16').join(',')}};\n`;
-        o+=`static const char *${b}_enemy_type[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>'"'+e.type+'"').join(',')}};\n\n`;
+        o+=`static const char *${b}_enemy_type[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>'"'+e.type+'"').join(',')}};\n`;
+        o+=`static const char *${b}_enemy_tint[${b.toUpperCase()}_ENEMY_COUNT] = {${m.enemies.map(e=>'"'+(e.tint||'default')+'"').join(',')}};\n\n`;
       }
     }});
   // Manifest bindings
